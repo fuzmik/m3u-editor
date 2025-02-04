@@ -1,0 +1,20 @@
+name: m3u-editor
+services:
+  m3u-editor:
+    image: sparkison/m3u-editor:latest
+    container_name: m3u-editor
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=auto
+      - WWWUSER=sail
+    volumes:
+      - m3u-editor-config:/var/www/config
+    restart: unless-stopped
+    ports:
+      - 36400:36400 # app
+      - 36800:36800 # websockets/broadcasting
+networks: {}
+volumes:
+  m3u-editor-config:
+    name: m3u-editor-config
