@@ -44,6 +44,11 @@ class ProcessEpgImport implements ShouldQueue
             return;
         }
 
+        // Check if auto sync is enabled, or the playlist hasn't been synced yet
+        if (!$this->epg->auto_sync && $this->epg->synced) {
+            return;
+        }
+
         // Update the playlist status to processing
         $this->epg->update([
             'status' => EpgStatus::Processing,
@@ -86,8 +91,8 @@ class ProcessEpgImport implements ShouldQueue
                 }
             } else {
                 // Get uploaded file contents
-                if ($this->epg->uploads) {
-                    $output = file_get_contents($this->epg->uploads[0]);
+                if ($this->epg->uploads && Storage::disk('local')->exists($this->epg->uploads)) {
+                    $output = file_get_contents(Storage::disk('local')->path($this->epg->uploads));
 
                     // Attempt to decode the gzipped content
                     $xmlData = gzdecode($output);

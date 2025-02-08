@@ -54,6 +54,7 @@ class ChannelResource extends Resource
             ->defaultPaginationPageOption(25)
             ->columns([
                 Tables\Columns\ImageColumn::make('logo')
+                    ->toggleable()
                     ->circular(),
                 Tables\Columns\TextColumn::make('title')
                     ->searchable()
@@ -62,41 +63,50 @@ class ChannelResource extends Resource
                 Tables\Columns\TextColumn::make('name')
                     ->searchable()
                     ->wrap()
+                    ->toggleable()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('stream_id')
                     ->searchable()
                     ->toggleable()
                     ->sortable(),
                 Tables\Columns\ToggleColumn::make('enabled')
+                    ->toggleable()
                     ->sortable(),
                 Tables\Columns\TextInputColumn::make('channel')
                     ->rules(['numeric', 'min:0'])
+                    ->toggleable()
                     ->sortable(),
                 Tables\Columns\TextInputColumn::make('shift')
                     ->rules(['numeric', 'min:0'])
-                    ->sortable()
-                    ->toggleable(),
+                    ->toggleable()
+                    ->sortable(),
                 Tables\Columns\TextColumn::make('group')
                     ->hidden(fn() => $relationId)
+                    ->toggleable()
                     ->searchable()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('epgChannel.name')
                     ->label('EPG Channel')
+                    ->toggleable()
                     ->searchable()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('url')
                     ->url(fn($record): string => $record->url)
                     ->searchable()
-                    ->toggleable(isToggledHiddenByDefault: true),
+                    ->toggleable(isToggledHiddenByDefault: true)
+                    ->sortable(),
                 Tables\Columns\TextColumn::make('lang')
                     ->searchable()
-                    ->toggleable(isToggledHiddenByDefault: true),
+                    ->toggleable(isToggledHiddenByDefault: true)
+                    ->sortable(),
                 Tables\Columns\TextColumn::make('country')
                     ->searchable()
-                    ->toggleable(isToggledHiddenByDefault: true),
+                    ->toggleable(isToggledHiddenByDefault: true)
+                    ->sortable(),
                 Tables\Columns\TextColumn::make('playlist.name')
                     ->hidden(fn() => $relationId)
                     ->numeric()
+                    ->toggleable()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('created_at')
                     ->dateTime()
@@ -134,12 +144,12 @@ class ChannelResource extends Resource
                 Tables\Actions\BulkActionGroup::make([
                     // Tables\Actions\DeleteBulkAction::make(),
                     Tables\Actions\BulkAction::make('map')
-                        ->label('Map seleted to EPG')
+                        ->label('Map EPG to seleted')
                         ->form([
                             Forms\Components\Select::make('epg')
                                 ->required()
                                 ->label('EPG')
-                                ->helperText('Select the EPG you would like to map the playlist channels to.')
+                                ->helperText('Select the EPG you would like to map from.')
                                 ->options(Epg::all(['name', 'id'])->pluck('name', 'id'))
                                 ->searchable(),
                             Forms\Components\Toggle::make('overwrite')
@@ -165,7 +175,7 @@ class ChannelResource extends Resource
                         ->requiresConfirmation()
                         ->icon('heroicon-o-link')
                         ->modalIcon('heroicon-o-link')
-                        ->modalDescription('Map the selected channels(s) to the selected EPG.')
+                        ->modalDescription('Map the selected EPG to the selected channels(s).')
                         ->modalSubmitActionLabel('Map now'),
                     Tables\Actions\BulkAction::make('enable')
                         ->label('Enable selected')

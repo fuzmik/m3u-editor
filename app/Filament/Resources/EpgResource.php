@@ -8,6 +8,7 @@ use App\Filament\Resources\EpgResource\RelationManagers;
 use App\Models\Epg;
 use Filament\Forms;
 use Filament\Forms\Form;
+use Filament\Forms\Get;
 use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
@@ -56,18 +57,32 @@ class EpgResource extends Resource
                 Tables\Columns\TextColumn::make('channels_count')
                     ->label('Channels')
                     ->counts('channels')
+                    ->toggleable()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('status')
                     ->sortable()
+                    ->toggleable()
                     ->badge()
                     ->color(fn(EpgStatus $state) => $state->getColor()),
+                Tables\Columns\IconColumn::make('auto_sync')
+                    ->label('Auto Sync')
+                    ->toggleable()
+                    ->icon(fn(string $state): string => match ($state) {
+                        '1' => 'heroicon-o-check-circle',
+                        '0' => 'heroicon-o-minus-circle',
+                    })->color(fn(string $state): string => match ($state) {
+                        '1' => 'success',
+                        '0' => 'danger',
+                    })->sortable(),
                 Tables\Columns\TextColumn::make('synced')
                     ->label('Last Synced')
                     ->since()
+                    ->toggleable()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('sync_time')
                     ->label('Sync Time')
                     ->formatStateUsing(fn(string $state): string => gmdate('H:i:s', $state))
+                    ->toggleable()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('created_at')
                     ->dateTime()
@@ -83,15 +98,7 @@ class EpgResource extends Resource
             ])
             ->actions([
                 Tables\Actions\ActionGroup::make([
-                    Tables\Actions\EditAction::make()
-                        ->after(function () {
-                            Notification::make()
-                                ->success()
-                                ->title('New EPG added')
-                                ->body('EPG is currently processing in the background. Depending on the size of the guide data, this may take a while.')
-                                ->duration(10000)
-                                ->send();
-                        }),
+                    Tables\Actions\EditAction::make(),
                     Tables\Actions\Action::make('process')
                         ->label('Process')
                         ->icon('heroicon-o-arrow-path')
@@ -106,6 +113,7 @@ class EpgResource extends Resource
                                 ->duration(10000)
                                 ->send();
                         })
+                        ->disabled(fn($record): bool => ! $record->auto_sync)
                         ->requiresConfirmation()
                         ->icon('heroicon-o-arrow-path')
                         ->modalIcon('heroicon-o-arrow-path')
@@ -173,6 +181,19 @@ class EpgResource extends Resource
                 ->required()
                 ->helperText('Enter the name of the EPG. Internal use only.')
                 ->maxLength(255),
+            Forms\Components\Toggle::make('auto_sync')
+                ->label('Automatically sync playlist every 24hr')
+                ->live()
+                ->default(true),
+            Forms\Components\DateTimePicker::make('synced')
+                ->columnSpan(2)
+                ->prefix('Sync 24hr from')
+                ->suffix('UTC')
+                ->native(false)
+                ->label('Last Synced')
+                ->hidden(fn(Get $get, string $operation): bool => ! $get('auto_sync') || $operation === 'create')
+                ->helperText('EPG will be synced every 24hr. Timestamp is automatically updated after each sync. Set to any time in the past (or future) and the next sync will run when 24hr has passed since the time set.'),
+
             Forms\Components\Section::make('XMLTV file or URL')
                 ->description('You can either upload an XMLTV file or provide a URL to an XMLTV file. File should conform to the XMLTV format.')
                 ->headerActions([
@@ -195,6 +216,9 @@ class EpgResource extends Resource
                         ->maxLength(255),
                     Forms\Components\FileUpload::make('uploads')
                         ->label('File')
+                        ->disk('local')
+                        ->directory('epg')
+                        ->rules(['file'])
                         ->requiredIf('url', [null, ''])
                         ->helperText('Upload the XMLTV file for the EPG. This will be used to import the guide data.'),
                 ])
