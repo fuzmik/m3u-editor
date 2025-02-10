@@ -115,7 +115,7 @@ COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 COPY start-container /usr/local/bin/start-container
 RUN chmod +x /usr/local/bin/start-container
 
-RUN git clone https://github.com/sparkison/m3u-editor.git /tmp/m3u-editor \
+RUN git clone https://github.com/fuzmik/m3u-editor.git /tmp/m3u-editor \
     && mv /tmp/m3u-editor/* /var/www/html \
     && mv /tmp/m3u-editor/.git /var/www/html/.git \
     && mv /tmp/m3u-editor/.env.example /var/www/html/.env.example \
