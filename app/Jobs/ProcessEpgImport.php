@@ -7,12 +7,11 @@ use XMLReader;
 use Throwable;
 use App\Enums\EpgStatus;
 use App\Models\Epg;
-use App\Models\EpgChannel;
+use App\Models\Job;
 use Filament\Notifications\Notification;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Str;
-use Illuminate\Bus\Batch;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
@@ -31,7 +30,8 @@ class ProcessEpgImport implements ShouldQueue
      * @param Epg $epg
      */
     public function __construct(
-        public Epg $epg
+        public Epg $epg,
+        public ?bool $force = false,
     ) {}
 
     /**
@@ -40,18 +40,19 @@ class ProcessEpgImport implements ShouldQueue
     public function handle(): void
     {
         // Don't update if currently processing
-        if ($this->epg->status === EpgStatus::Processing) {
+        if ($this->epg->processing) {
             return;
         }
-
-        // Check if auto sync is enabled, or the playlist hasn't been synced yet
-        if (!$this->epg->auto_sync && $this->epg->synced) {
-            return;
+        if (!$this->force) {
+            // Check if auto sync is enabled, or the playlist hasn't been synced yet
+            if (!$this->epg->auto_sync && $this->epg->synced) {
+                return;
+            }
         }
 
         // Update the playlist status to processing
         $this->epg->update([
-            'status' => EpgStatus::Processing,
+            'processing' => true,
             'errors' => null,
             'progress' => 0,
         ]);
@@ -67,8 +68,8 @@ class ProcessEpgImport implements ShouldQueue
             $userId = $epg->user_id;
             $batchNo = Str::uuid7()->toString();
 
-            $xmlData = null;
             $channelReader = null;
+            $filePath = null;
             if ($this->epg->url) {
                 // Normalize the playlist url and get the filename
                 $url = str($this->epg->url)->replace(' ', '%20');
@@ -80,41 +81,30 @@ class ProcessEpgImport implements ShouldQueue
                     ->throw()->get($url->toString());
 
                 if ($response->ok()) {
-                    // Get the contents
-                    $output = $response->body();
+                    // Remove previous saved files
+                    Storage::disk('local')->deleteDirectory($epg->folder_path);
 
-                    // Attempt to decode the gzipped content
-                    $xmlData = gzdecode($output);
-                    if (!$xmlData) {
-                        // If false, the content was not gzipped, use the original output
-                        $xmlData = $output;
-                    }
+                    // Save the file to local storage
+                    Storage::disk('local')->put(
+                        $epg->file_path,
+                        $response->body()
+                    );
+
+                    // Update the file path
+                    $filePath = Storage::disk('local')->path($epg->file_path);
                 }
             } else {
                 // Get uploaded file contents
                 if ($this->epg->uploads && Storage::disk('local')->exists($this->epg->uploads)) {
-                    $output = file_get_contents(Storage::disk('local')->path($this->epg->uploads));
-
-                    // Attempt to decode the gzipped content
-                    $xmlData = gzdecode($output);
-                    if (!$xmlData) {
-                        // If false, the content was not gzipped, use the original output
-                        $xmlData = $output;
-                    }
+                    $filePath = Storage::disk('local')->path($this->epg->uploads);
                 }
             }
 
             // If we have XML data, let's process it
-            if ($xmlData) {
+            if ($filePath) {
                 // Setup the XML readers
                 $channelReader = new XMLReader();
-                $channelReader->xml($xmlData);
-
-                // Remove previous saved files
-                Storage::disk('local')->deleteDirectory($epg->folder_path);
-
-                // Save the file to local storage
-                Storage::disk('local')->put($epg->file_path, $xmlData);
+                $channelReader->open('compress.zlib://' . $filePath);
             }
 
             // If reader valid, process the data!
@@ -131,8 +121,11 @@ class ProcessEpgImport implements ShouldQueue
                     'import_batch_no' => $batchNo,
                 ];
 
+                // Update progress
+                $epg->update(['progress' => 10]); // set to 10% to start
+
                 // Create a lazy collection to process the XML data
-                $channelData = LazyCollection::make(function () use ($channelReader, $defaultChannelData) {
+                LazyCollection::make(function () use ($channelReader, $defaultChannelData) {
                     // Loop through the XML data
                     while ($channelReader->read()) {
                         // Only consider XML elements and channel nodes
@@ -181,25 +174,27 @@ class ProcessEpgImport implements ShouldQueue
                             }
                         }
                     }
-                });
-
-                // Process the data
-                $jobs = [];
-                $channelData->chunk(100)->each(function (LazyCollection $chunk) use (&$jobs) {
-                    $jobs[] = new ProcessEpgChannelImport($chunk->toArray());
+                })->chunk(100)->each(function (LazyCollection $chunk) use ($epg, $batchNo) {
+                    Job::create([
+                        'title' => "Processing import for EPG: {$epg->name}",
+                        'batch_no' => $batchNo,
+                        'payload' => $chunk->toArray(),
+                        'variables' => [
+                            'epgId' => $epg->id,
+                        ]
+                    ]);
                 });
 
                 // Close the XMLReaders, all done!
                 $channelReader->close();
 
-                // Add progress update job to the batch
-                $count = count($jobs);
-                $chunkSize = ceil($count / 10);
-                for ($i = $chunkSize; $i < $count; $i += $chunkSize) {
-                    array_splice($jobs, $i, 0, function () use ($epg, $i, $count) {
-                        $epg->update(['progress' => ($i / $count) * 100]);
-                    });
-                }
+                // Get the jobs for the batch
+                $jobs = [];
+                $batchCount = Job::where('batch_no', $batchNo)->select('id')->count();
+                $jobsBatch = Job::where('batch_no', $batchNo)->select('id')->cursor();
+                $jobsBatch->chunk(100)->each(function ($chunk) use (&$jobs, $batchCount) {
+                    $jobs[] = new ProcessEpgImportChunk($chunk->pluck('id')->toArray(), $batchCount);
+                });
 
                 // Last job in the batch
                 $jobs[] = new ProcessEpgImportComplete($userId, $epgId, $batchNo, $start);
@@ -224,6 +219,7 @@ class ProcessEpgImport implements ShouldQueue
                             'synced' => now(),
                             'errors' => $error,
                             'progress' => 100,
+                            'processing' => false,
                         ]);
                     })->dispatch();
             } else {
@@ -249,6 +245,7 @@ class ProcessEpgImport implements ShouldQueue
                     'synced' => now(),
                     'errors' => $error,
                     'progress' => 100,
+                    'processing' => false,
                 ]);
             }
         } catch (Exception $e) {
@@ -273,6 +270,7 @@ class ProcessEpgImport implements ShouldQueue
                 'synced' => now(),
                 'errors' => $e->getMessage(),
                 'progress' => 100,
+                'processing' => false,
             ]);
         }
         return;

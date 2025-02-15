@@ -4,6 +4,7 @@ namespace App\Providers\Filament;
 
 use App\Filament\Auth\Login;
 use App\Filament\Auth\EditProfile;
+use App\Settings\GeneralSettings;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
@@ -22,12 +23,37 @@ use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\Blade;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
 use \Croustibat\FilamentJobsMonitor\FilamentJobsMonitorPlugin;
+use Doctrine\DBAL\Query\QueryException;
+use Exception;
+use Filament\Support\Enums\MaxWidth;
+use Hydrat\TableLayoutToggle\TableLayoutTogglePlugin;
 
 class AdminPanelProvider extends PanelProvider
 {
+    protected static ?string $navigationIcon = 'heroicon-o-tachometer';
+    public static function getNavigationIcon(): ?string
+    {
+        return 'heroicon-o-tachometer';
+    }
+
     public function panel(Panel $panel): Panel
     {
-        return $panel
+        $userPreferences = app(GeneralSettings::class);
+        $settings = [
+            'navigation_position' => 'left',
+            'show_breadcrumbs' => true,
+            'content_width' => MaxWidth::ScreenLarge,
+        ];
+        try {
+            $settings = [
+                'navigation_position' => $userPreferences->navigation_position ?? $settings['navigation_position'],
+                'show_breadcrumbs' => $userPreferences->show_breadcrumbs ?? $settings['show_breadcrumbs'],
+                'content_width' => $userPreferences->content_width ?? $settings['content_width'],
+            ];
+        } catch (Exception $e) {
+            // Ignore
+        }
+        $adminPanel = $panel
             ->default()
             ->id('admin')
             ->path('')
@@ -45,6 +71,7 @@ class AdminPanelProvider extends PanelProvider
             ->pages([
                 Pages\Dashboard::class,
             ])
+            ->breadcrumbs($settings['show_breadcrumbs'])
             ->discoverWidgets(in: app_path('Filament/Widgets'), for: 'App\\Filament\\Widgets')
             ->widgets([
                 // Widgets\AccountWidget::class,
@@ -52,8 +79,11 @@ class AdminPanelProvider extends PanelProvider
             ])
             ->plugins([
                 FilamentJobsMonitorPlugin::make()
-                    ->enableNavigation(app()->environment('local')) // local only for testing...
+                    ->enableNavigation(app()->environment('local')), // local only for testing...
+                TableLayoutTogglePlugin::make(),
             ])
+            ->maxContentWidth($settings['content_width'])
+            // ->simplePageMaxContentWidth(MaxWidth::Small) // Login, sign in, etc.
             ->middleware([
                 EncryptCookies::class,
                 AddQueuedCookiesToResponse::class,
@@ -67,7 +97,20 @@ class AdminPanelProvider extends PanelProvider
             ])
             ->authMiddleware([
                 Authenticate::class,
+            ])
+            ->spa()
+            ->spaUrlExceptions(fn(): array => [
+                '*/playlist.m3u',
+                '*/epg.xml',
+                'epgs/*/epg.xml'
             ]);
+
+        if ($settings['navigation_position'] === 'top') {
+            $adminPanel->topNavigation();
+        } else {
+            $adminPanel->sidebarCollapsibleOnDesktop();
+        }
+        return $adminPanel;
     }
 
     public function register(): void

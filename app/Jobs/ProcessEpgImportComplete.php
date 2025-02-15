@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Enums\EpgStatus;
 use App\Models\EpgChannel;
+use App\Models\Job;
 use App\Models\User;
 use Carbon\Carbon;
 use Filament\Notifications\Notification;
@@ -56,6 +57,9 @@ class ProcessEpgImportComplete implements ShouldQueue
             ['import_batch_no', '!=', $this->batchNo],
         ])->delete();
 
+        // Clear out the jobs
+        Job::where(['batch_no', $this->batchNo])->delete();
+
         // Update the epg
         $epg->update([
             'status' => EpgStatus::Completed,
@@ -63,6 +67,7 @@ class ProcessEpgImportComplete implements ShouldQueue
             'errors' => null,
             'sync_time' => $completedIn,
             'progress' => 100,
+            'processing' => false,
         ]);
     }
 }

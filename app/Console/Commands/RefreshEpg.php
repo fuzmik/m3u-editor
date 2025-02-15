@@ -36,18 +36,24 @@ class RefreshEpg extends Command
             $this->info('Dispatched EPG for refresh');
         } else {
             $this->info('Refreshing all EPGs');
-            $twentyFourHoursAgo = now()->subDay();
+            $eightHoursAgo = now()->subHours(8); // lowest interval
             $epgs = Epg::query()->where(
                 'status',
                 '!=',
                 EpgStatus::Processing,
-            )->whereDate('synced', '<=', $twentyFourHoursAgo);
+            )->whereDate('synced', '<=', $eightHoursAgo);
             $count = $epgs->count();
             if ($count === 0) {
                 $this->info('No EPGs ready refresh');
                 return;
             }
-            $epgs->get()->each(fn(Epg $playlist) => dispatch(new ProcessEpgImport($playlist)));
+            $epgs->get()->each(function (Epg $epg) {
+                // Check the sync interval to see if we need to refresh yet
+                $nextSync = $epg->synced->add($epg->interval);
+                if (!$nextSync->isFuture()) {
+                    dispatch(new ProcessEpgImport($epg));
+                }
+            });
             $this->info('Dispatched ' . $count . ' epgs for refresh');
         }
         return;

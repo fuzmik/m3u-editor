@@ -67,7 +67,7 @@ class EpgResource extends Resource
                     ->color(fn(EpgStatus $state) => $state->getColor()),
                 ProgressColumn::make('progress')
                     ->sortable()
-                    ->poll(fn($record) => $record->status === EpgStatus::Processing && $record->progress < 100 ? '5s' : null)
+                    ->poll(fn($record) => $record->status === EpgStatus::Processing || $record->status === EpgStatus::Pending ? '5s' : null)
                     ->toggleable(),
                 Tables\Columns\IconColumn::make('auto_sync')
                     ->label('Auto Sync')
@@ -84,9 +84,13 @@ class EpgResource extends Resource
                     ->since()
                     ->toggleable()
                     ->sortable(),
+                Tables\Columns\TextColumn::make('sync_interval')
+                    ->label('Interval')
+                    ->toggleable()
+                    ->sortable(),
                 Tables\Columns\TextColumn::make('sync_time')
                     ->label('Sync Time')
-                    ->formatStateUsing(fn(string $state): string => gmdate('H:i:s', $state))
+                    ->formatStateUsing(fn(string $state): string => gmdate('H:i:s', (int)$state))
                     ->toggleable()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('created_at')
@@ -108,17 +112,21 @@ class EpgResource extends Resource
                         ->label('Process')
                         ->icon('heroicon-o-arrow-path')
                         ->action(function ($record) {
+                            $record->update([
+                                'status' => EpgStatus::Processing,
+                                'progress' => 0,
+                            ]);
                             app('Illuminate\Contracts\Bus\Dispatcher')
-                                ->dispatch(new \App\Jobs\ProcessEpgImport($record));
+                                ->dispatch(new \App\Jobs\ProcessEpgImport($record, force: true));
                         })->after(function () {
                             Notification::make()
                                 ->success()
                                 ->title('EPG is processing')
-                                ->body('EPG is being processed in the background. Depending on the size of the guide data, this may take a while.')
+                                ->body('EPG is being processed in the background. Depending on the size of the guide data, this may take a while. You will be notified on completion.')
                                 ->duration(10000)
                                 ->send();
                         })
-                        ->disabled(fn($record): bool => ! $record->auto_sync)
+                        ->disabled(fn($record): bool => $record->status === EpgStatus::Processing)
                         ->requiresConfirmation()
                         ->icon('heroicon-o-arrow-path')
                         ->modalIcon('heroicon-o-arrow-path')
@@ -136,16 +144,16 @@ class EpgResource extends Resource
                         ->action(function ($record) {
                             $record->update([
                                 'status' => EpgStatus::Pending,
+                                'processing' => false,
                                 'progress' => 0,
-                                'channels' => 0,
                                 'synced' => null,
                                 'errors' => null,
                             ]);
                         })->after(function () {
                             Notification::make()
                                 ->success()
-                                ->title('Playlist status reset')
-                                ->body('Playlist status has been reset.')
+                                ->title('EPG status reset')
+                                ->body('EPG status has been reset.')
                                 ->duration(3000)
                                 ->send();
                         })
@@ -153,7 +161,7 @@ class EpgResource extends Resource
                         ->requiresConfirmation()
                         ->icon('heroicon-o-arrow-uturn-left')
                         ->modalIcon('heroicon-o-arrow-uturn-left')
-                        ->modalDescription('Reset playlist status so it can be processed again. Only perform this action if you are having problems with the playlist syncing.')
+                        ->modalDescription('Reset EPG status so it can be processed again. Only perform this action if you are having problems with the EPG syncing.')
                         ->modalSubmitActionLabel('Yes, reset now'),
                     Tables\Actions\DeleteAction::make(),
                 ]),
@@ -165,8 +173,12 @@ class EpgResource extends Resource
                         ->label('Process selected')
                         ->action(function (Collection $records): void {
                             foreach ($records as $record) {
+                                $record->update([
+                                    'status' => EpgStatus::Processing,
+                                    'progress' => 0,
+                                ]);
                                 app('Illuminate\Contracts\Bus\Dispatcher')
-                                    ->dispatch(new \App\Jobs\ProcessEpgImport($record));
+                                    ->dispatch(new \App\Jobs\ProcessEpgImport($record, force: true));
                             }
                         })->after(function () {
                             Notification::make()
@@ -213,17 +225,31 @@ class EpgResource extends Resource
                 ->helperText('Enter the name of the EPG. Internal use only.')
                 ->maxLength(255),
             Forms\Components\Toggle::make('auto_sync')
-                ->label('Automatically sync playlist every 24hr')
+                ->label('Automatically sync EPG')
+                ->helperText('When enabled, the EPG will be automatically re-synced at the specified interval.')
                 ->live()
+                ->inline(false)
                 ->default(true),
+            Forms\Components\Select::make('sync_interval')
+                ->label('Sync Every')
+                ->helperText('Default is every 24hr if left empty.')
+                ->options([
+                    '8hr' => '8hr',
+                    '12hr' => '12hr',
+                    '24hr' => '24hr',
+                    '2 days' => '2 days',
+                    '3 days' => '3 days',
+                    '1 week' => '1 week',
+                    '2 weeks' => '2 weeks',
+                    '1 month' => '1 month',
+                ])->hidden(fn(Get $get): bool => ! $get('auto_sync')),
             Forms\Components\DateTimePicker::make('synced')
                 ->columnSpan(2)
-                ->prefix('Sync 24hr from')
                 ->suffix('UTC')
                 ->native(false)
                 ->label('Last Synced')
                 ->hidden(fn(Get $get, string $operation): bool => ! $get('auto_sync') || $operation === 'create')
-                ->helperText('EPG will be synced every 24hr. Timestamp is automatically updated after each sync. Set to any time in the past (or future) and the next sync will run when 24hr has passed since the time set.'),
+                ->helperText('EPG will be synced at the specified interval. Timestamp is automatically updated after each sync. Set to any time in the past (or future) and the next sync will run when the defined interval has passed since the time set.'),
 
             Forms\Components\Section::make('XMLTV file or URL')
                 ->description('You can either upload an XMLTV file or provide a URL to an XMLTV file. File should conform to the XMLTV format.')

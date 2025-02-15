@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Enums\PlaylistStatus;
 use App\Models\Channel;
 use App\Models\Group;
+use App\Models\Job;
 use App\Models\User;
 use Carbon\Carbon;
 use Filament\Notifications\Notification;
@@ -21,6 +22,7 @@ class ProcessM3uImportComplete implements ShouldQueue
     public function __construct(
         public int $userId,
         public int $playlistId,
+        public array $groups,
         public string $batchNo,
         public Carbon $start,
     ) {
@@ -63,6 +65,22 @@ class ProcessM3uImportComplete implements ShouldQueue
             ['import_batch_no', '!=', $this->batchNo],
         ])->delete();
 
+        // Clear out the jobs
+        Job::where(['batch_no', $this->batchNo])->delete();
+
+        // Update the import preferences
+        if ($playlist->import_prefs['preprocess'] ?? false) {
+            $importPrefs = [
+                ...$playlist->import_prefs ?? [],
+
+                // Make sure there's no selected groups that are no longer in the available groups
+                'selected_groups' => array_intersect($playlist->import_prefs['selected_groups'] ?? [], $this->groups),
+            ];
+        } else {
+            // no changes to import prefs
+            $importPrefs = $playlist->import_prefs;
+        }
+
         // Update the playlist
         $playlist->update([
             'status' => PlaylistStatus::Completed,
@@ -71,6 +89,9 @@ class ProcessM3uImportComplete implements ShouldQueue
             'errors' => null,
             'sync_time' => $completedIn,
             'progress' => 100,
+            'processing' => false,
+            'import_prefs' => $importPrefs,
+            'groups' => $this->groups,
         ]);
     }
 }

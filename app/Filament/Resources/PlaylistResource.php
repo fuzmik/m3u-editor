@@ -75,7 +75,7 @@ class PlaylistResource extends Resource
                     ->color(fn(PlaylistStatus $state) => $state->getColor()),
                 ProgressColumn::make('progress')
                     ->sortable()
-                    ->poll(fn($record) => $record->status === PlaylistStatus::Processing && $record->progress < 100 ? '5s' : null)
+                    ->poll(fn($record) => $record->status === PlaylistStatus::Processing || $record->status === PlaylistStatus::Pending ? '5s' : null)
                     ->toggleable(),
                 Tables\Columns\IconColumn::make('auto_sync')
                     ->label('Auto Sync')
@@ -91,9 +91,13 @@ class PlaylistResource extends Resource
                     ->since()
                     ->toggleable()
                     ->sortable(),
+                Tables\Columns\TextColumn::make('sync_interval')
+                    ->label('Interval')
+                    ->toggleable()
+                    ->sortable(),
                 Tables\Columns\TextColumn::make('sync_time')
                     ->label('Sync Time')
-                    ->formatStateUsing(fn(string $state): string => gmdate('H:i:s', $state))
+                    ->formatStateUsing(fn(string $state): string => gmdate('H:i:s', (int)$state))
                     ->toggleable()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('created_at')
@@ -115,17 +119,21 @@ class PlaylistResource extends Resource
                         ->label('Process')
                         ->icon('heroicon-o-arrow-path')
                         ->action(function ($record) {
+                            $record->update([
+                                'status' => PlaylistStatus::Processing,
+                                'progress' => 0,
+                            ]);
                             app('Illuminate\Contracts\Bus\Dispatcher')
-                                ->dispatch(new \App\Jobs\ProcessM3uImport($record));
+                                ->dispatch(new \App\Jobs\ProcessM3uImport($record, force: true));
                         })->after(function () {
                             Notification::make()
                                 ->success()
                                 ->title('Playlist is processing')
-                                ->body('Playlist is being processed in the background. Depending on the size of your playlist, this may take a while.')
+                                ->body('Playlist is being processed in the background. Depending on the size of your playlist, this may take a while. You will be notified on completion.')
                                 ->duration(10000)
                                 ->send();
                         })
-                        ->disabled(fn($record): bool => ! $record->auto_sync)
+                        ->disabled(fn($record): bool => $record->status === PlaylistStatus::Processing)
                         ->requiresConfirmation()
                         ->icon('heroicon-o-arrow-path')
                         ->modalIcon('heroicon-o-arrow-path')
@@ -148,6 +156,7 @@ class PlaylistResource extends Resource
                         ->action(function ($record) {
                             $record->update([
                                 'status' => PlaylistStatus::Pending,
+                                'processing' => false,
                                 'progress' => 0,
                                 'channels' => 0,
                                 'synced' => null,
@@ -177,8 +186,12 @@ class PlaylistResource extends Resource
                         ->label('Process selected')
                         ->action(function (Collection $records): void {
                             foreach ($records as $record) {
+                                $record->update([
+                                    'status' => PlaylistStatus::Processing,
+                                    'progress' => 0,
+                                ]);
                                 app('Illuminate\Contracts\Bus\Dispatcher')
-                                    ->dispatch(new \App\Jobs\ProcessM3uImport($record));
+                                    ->dispatch(new \App\Jobs\ProcessM3uImport($record, force: true));
                             }
                         })->after(function () {
                             Notification::make()
@@ -229,17 +242,53 @@ class PlaylistResource extends Resource
                 ->required()
                 ->helperText('Enter the URL of the playlist file. If changing URL, the playlist will be re-imported. Use with caution as this could lead to data loss if the new playlist differs from the old one.'),
             Forms\Components\Toggle::make('auto_sync')
-                ->label('Automatically sync playlist every 24hr')
+                ->label('Automatically sync playlist')
+                ->helperText('When enabled, the playlist will be automatically re-synced at the specified interval.')
                 ->live()
+                ->inline(false)
                 ->default(true),
+            Forms\Components\Select::make('sync_interval')
+                ->label('Sync Every')
+                ->helperText('Default is every 24hr if left empty.')
+                ->options([
+                    '8hr' => '8hr',
+                    '12hr' => '12hr',
+                    '24hr' => '24hr',
+                    '2 days' => '2 days',
+                    '3 days' => '3 days',
+                    '1 week' => '1 week',
+                    '2 weeks' => '2 weeks',
+                    '1 month' => '1 month',
+                ])->hidden(fn(Get $get): bool => ! $get('auto_sync')),
             Forms\Components\DateTimePicker::make('synced')
                 ->columnSpan(2)
-                ->prefix('Sync 24hr from')
                 ->suffix('UTC')
                 ->native(false)
                 ->label('Last Synced')
                 ->hidden(fn(Get $get, string $operation): bool => ! $get('auto_sync') || $operation === 'create')
-                ->helperText('Playlist will be synced every 24hr. Timestamp is automatically updated after each sync. Set to any time in the past (or future) and the next sync will run when 24hr has passed since the time set.'),
+                ->helperText('Playlist will be synced at the specified interval. Timestamp is automatically updated after each sync. Set to any time in the past (or future) and the next sync will run when the defined interval has passed since the time set.'),
+
+            Forms\Components\Toggle::make('import_prefs.preprocess')
+                ->label('Preprocess playlist')
+                ->columnSpan('full')
+                ->live()
+                ->inline(false)
+                ->default(false)
+                ->helperText('When enabled, the playlist will be preprocessed before importing. You can then select which groups you would like to import.'),
+            Forms\Components\Select::make('import_prefs.selected_groups')
+                ->label('Groups to import')
+                ->columnSpan('full')
+                ->searchable()
+                ->multiple()
+                ->helperText('You will need to manually run the sync if updating the groups to import. If the list is empty, process the list and check again once complete.')
+                ->options(function (Get $get): array {
+                    $options = [];
+                    foreach ($get('groups') ?? [] as $option) {
+                        $options[$option] = $option;
+                    }
+                    return $options;
+                })
+                ->hidden(fn(Get $get): bool => ! $get('import_prefs.preprocess') || !$get('status')),
 
             Forms\Components\Section::make('Links')
                 ->description('These links are generated based on the current playlist configuration. Only enabled channels will be included.')

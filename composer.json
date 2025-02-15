@@ -9,14 +9,18 @@
         "php": "^8.2",
         "croustibat/filament-jobs-monitor": "^2.5",
         "filament/filament": "^3.2",
-        "gemorroj/m3u-parser": "^5.5",
+        "filament/spatie-laravel-settings-plugin": "^3.2",
+        "hydrat/filament-table-layout-toggle": "^2.0",
         "laravel/framework": "^11.31",
         "laravel/horizon": "^5.30",
         "laravel/octane": "^2.6",
         "laravel/reverb": "^1.0",
         "laravel/tinker": "^2.9",
         "predis/predis": "^2.3",
-        "ryangjchandler/filament-progress-column": "^1.0"
+        "ryangjchandler/filament-progress-column": "^1.0",
+        "sparkison/m3u-parser": "dev-master",
+        "spiral/roadrunner-cli": "^2.6.0",
+        "spiral/roadrunner-http": "^3.3.0"
     },
     "require-dev": {
         "beyondcode/laravel-dump-server": "^2.0",
@@ -44,12 +48,12 @@
     },
     "scripts": {
         "post-autoload-dump": [
-            "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
-            "@php artisan package:discover --ansi",
-            "@php artisan filament:upgrade"
+            "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump"
         ],
         "post-update-cmd": [
-            "@php artisan vendor:publish --tag=laravel-assets --ansi --force"
+            "@php artisan vendor:publish --tag=laravel-assets --ansi --force",
+            "@php artisan package:discover --ansi",
+            "@php artisan filament:upgrade"
         ],
         "post-root-package-install": [
             "@php -r \"file_exists('.env') || copy('.env.example', '.env');\""

@@ -4,12 +4,16 @@ namespace App\Providers;
 
 use App\Events\EpgCreated;
 use App\Events\PlaylistCreated;
+use App\Jobs\ReloadApp;
 use App\Models\CustomPlaylist;
 use App\Models\MergedPlaylist;
 use App\Models\Epg;
 use App\Models\Playlist;
+use App\Settings\GeneralSettings;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Support\Facades\Event;
+use Spatie\LaravelSettings\Events\SettingsSaved;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -29,13 +33,31 @@ class AppServiceProvider extends ServiceProvider
         // Disable mass assignment protection (security handled by Filament)
         Model::unguard();
 
+        // Listen for settings update
+        Event::listen(SettingsSaved::class, function ($event) {
+            if ($event->settings::class === GeneralSettings::class) {
+                // Reload the app so the new settings are applied
+                app('Illuminate\Contracts\Bus\Dispatcher')
+                    ->dispatch(new ReloadApp());
+            }
+        });
+
         // Register the event listener
         try {
             // Process playlist on creation
             Playlist::created(fn(Playlist $playlist) => event(new PlaylistCreated($playlist)));
             Playlist::creating(function (Playlist $playlist) {
                 $playlist->user_id = auth()->id();
+                if (!$playlist->sync_interval) {
+                    $playlist->sync_interval = '24hr';
+                }
                 $playlist->uuid = \Illuminate\Support\Str::orderedUuid()->toString();
+                return $playlist;
+            });
+            Playlist::updating(function (Playlist $playlist) {
+                if (!$playlist->sync_interval) {
+                    $playlist->sync_interval = '24hr';
+                }
                 return $playlist;
             });
 
@@ -43,7 +65,16 @@ class AppServiceProvider extends ServiceProvider
             Epg::created(fn(Epg $epg) => event(new EpgCreated($epg)));
             Epg::creating(function (Epg $epg) {
                 $epg->user_id = auth()->id();
+                if (!$epg->sync_interval) {
+                    $epg->sync_interval = '24hr';
+                }
                 $epg->uuid = \Illuminate\Support\Str::orderedUuid()->toString();
+                return $epg;
+            });
+            Epg::updating(function (Epg $epg) {
+                if (!$epg->sync_interval) {
+                    $epg->sync_interval = '24hr';
+                }
                 return $epg;
             });
 
