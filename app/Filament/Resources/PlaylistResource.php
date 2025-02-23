@@ -25,6 +25,14 @@ class PlaylistResource extends Resource
 {
     protected static ?string $model = Playlist::class;
 
+    protected static ?string $recordTitleAttribute = 'name';
+
+    public static function getGlobalSearchEloquentQuery(): Builder
+    {
+        return parent::getGlobalSearchEloquentQuery()
+            ->where('user_id', auth()->id());
+    }
+
     protected static ?string $navigationIcon = 'heroicon-o-play';
 
     protected static ?string $navigationGroup = 'Playlist';
@@ -75,7 +83,7 @@ class PlaylistResource extends Resource
                     ->color(fn(PlaylistStatus $state) => $state->getColor()),
                 ProgressColumn::make('progress')
                     ->sortable()
-                    ->poll(fn($record) => $record->status === PlaylistStatus::Processing || $record->status === PlaylistStatus::Pending ? '5s' : null)
+                    ->poll(fn($record) => $record->status === PlaylistStatus::Processing || $record->status === PlaylistStatus::Pending ? '3s' : null)
                     ->toggleable(),
                 Tables\Columns\IconColumn::make('auto_sync')
                     ->label('Auto Sync')
@@ -233,62 +241,126 @@ class PlaylistResource extends Resource
     {
         return [
             Forms\Components\TextInput::make('name')
+                ->columnSpan('full')
                 ->required()
                 ->helperText('Enter the name of the playlist. Internal use only.'),
-            Forms\Components\TextInput::make('url')
-                ->label('Playlist URL')
-                ->url()
-                ->prefixIcon('heroicon-m-globe-alt')
-                ->required()
-                ->helperText('Enter the URL of the playlist file. If changing URL, the playlist will be re-imported. Use with caution as this could lead to data loss if the new playlist differs from the old one.'),
-            Forms\Components\Toggle::make('auto_sync')
-                ->label('Automatically sync playlist')
-                ->helperText('When enabled, the playlist will be automatically re-synced at the specified interval.')
-                ->live()
-                ->inline(false)
-                ->default(true),
-            Forms\Components\Select::make('sync_interval')
-                ->label('Sync Every')
-                ->helperText('Default is every 24hr if left empty.')
-                ->options([
-                    '8hr' => '8hr',
-                    '12hr' => '12hr',
-                    '24hr' => '24hr',
-                    '2 days' => '2 days',
-                    '3 days' => '3 days',
-                    '1 week' => '1 week',
-                    '2 weeks' => '2 weeks',
-                    '1 month' => '1 month',
-                ])->hidden(fn(Get $get): bool => ! $get('auto_sync')),
-            Forms\Components\DateTimePicker::make('synced')
-                ->columnSpan(2)
-                ->suffix('UTC')
-                ->native(false)
-                ->label('Last Synced')
-                ->hidden(fn(Get $get, string $operation): bool => ! $get('auto_sync') || $operation === 'create')
-                ->helperText('Playlist will be synced at the specified interval. Timestamp is automatically updated after each sync. Set to any time in the past (or future) and the next sync will run when the defined interval has passed since the time set.'),
 
-            Forms\Components\Toggle::make('import_prefs.preprocess')
-                ->label('Preprocess playlist')
-                ->columnSpan('full')
-                ->live()
-                ->inline(false)
-                ->default(false)
-                ->helperText('When enabled, the playlist will be preprocessed before importing. You can then select which groups you would like to import.'),
-            Forms\Components\Select::make('import_prefs.selected_groups')
-                ->label('Groups to import')
-                ->columnSpan('full')
-                ->searchable()
-                ->multiple()
-                ->helperText('You will need to manually run the sync if updating the groups to import. If the list is empty, process the list and check again once complete.')
-                ->options(function (Get $get): array {
-                    $options = [];
-                    foreach ($get('groups') ?? [] as $option) {
-                        $options[$option] = $option;
-                    }
-                    return $options;
-                })
-                ->hidden(fn(Get $get): bool => ! $get('import_prefs.preprocess') || !$get('status')),
+            Forms\Components\Section::make('M3U file or URL')
+                ->description('You can either upload an M3U file or provide a URL to an M3U file. File should conform to the M3U format.')
+                ->headerActions([
+                    Forms\Components\Actions\Action::make('M3U Format')
+                        ->label('M3U Format')
+                        ->icon('heroicon-o-arrow-top-right-on-square')
+                        ->iconPosition('after')
+                        ->size('sm')
+                        ->url('https://en.wikipedia.org/wiki/M3U')
+                        ->openUrlInNewTab(true),
+                ])
+                ->schema([
+                    Forms\Components\TextInput::make('url')
+                        ->label('URL')
+                        ->requiredIf('uploads', [null, ''])
+                        ->prefixIcon('heroicon-m-globe-alt')
+                        ->helperText('Enter the URL of the playlist file. If changing URL, the playlist will be re-imported. Use with caution as this could lead to data loss if the new playlist differs from the old one.')
+                        ->url()
+                        ->maxLength(255),
+                    Forms\Components\FileUpload::make('uploads')
+                        ->label('File')
+                        ->disk('local')
+                        ->directory('playlist')
+                        ->rules(['file'])
+                        ->requiredIf('url', [null, ''])
+                        ->helperText('Upload the playlist file. This will be used to import groups and channels.'),
+                ]),
+
+            Forms\Components\Section::make('Scheduling')
+                ->description('Auto sync and scheduling options')
+                ->columns(3)
+                ->schema([
+                    Forms\Components\Toggle::make('auto_sync')
+                        ->label('Automatically sync playlist')
+                        ->helperText('When enabled, the playlist will be automatically re-synced at the specified interval.')
+                        ->live()
+                        ->columnSpan(2)
+                        ->inline(false)
+                        ->default(true),
+                    Forms\Components\Select::make('sync_interval')
+                        ->label('Sync Every')
+                        ->helperText('Default is every 24hr if left empty.')
+                        ->columnSpan(1)
+                        ->options([
+                            '8 hours' => '8 hours',
+                            '12 hours' => '12 hours',
+                            '24 hours' => '24 hours',
+                            '2 days' => '2 days',
+                            '3 days' => '3 days',
+                            '1 week' => '1 week',
+                            '2 weeks' => '2 weeks',
+                            '1 month' => '1 month',
+                        ])->hidden(fn(Get $get): bool => ! $get('auto_sync')),
+                    Forms\Components\DateTimePicker::make('synced')
+                        ->columnSpan(3)
+                        ->suffix('UTC')
+                        ->native(false)
+                        ->label('Last Synced')
+                        ->hidden(fn(Get $get, string $operation): bool => ! $get('auto_sync') || $operation === 'create')
+                        ->helperText('Playlist will be synced at the specified interval. Timestamp is automatically updated after each sync. Set to any time in the past (or future) and the next sync will run when the defined interval has passed since the time set.'),
+                ]),
+
+            Forms\Components\Section::make('Processing')
+                ->description('Import preferences')
+                ->columns(2)
+                ->schema([
+                    Forms\Components\Toggle::make('import_prefs.preprocess')
+                        ->label('Preprocess playlist')
+                        ->columnSpan(1)
+                        ->live()
+                        ->inline(false)
+                        ->default(false)
+                        ->helperText('When enabled, the playlist will be preprocessed before importing. You can then select which groups you would like to import.'),
+                    Forms\Components\Toggle::make('enable_channels')
+                        ->label('Enable new channels')
+                        ->columnSpan(1)
+                        ->inline(false)
+                        ->default(false)
+                        ->helperText('When enabled, newly added channels will be enabled by default.'),
+                    Forms\Components\Select::make('import_prefs.selected_groups')
+                        ->label('Groups to import')
+                        ->columnSpan(1)
+                        ->searchable()
+                        ->multiple()
+                        ->helperText('You will need to manually run the sync if updating the groups to import. If the list is empty, process the list and check again once complete.')
+                        ->options(function (Get $get): array {
+                            $options = [];
+                            foreach ($get('groups') ?? [] as $option) {
+                                $options[$option] = $option;
+                            }
+                            return $options;
+                        })
+                        ->hidden(fn(Get $get): bool => ! $get('import_prefs.preprocess') || !$get('status')),
+                    Forms\Components\TagsInput::make('import_prefs.included_group_prefixes')
+                        ->label('Group prefixes to import')
+                        ->helperText('Press [tab] or [return] to add item. Use to include multiple groups that have a similar prefix (.e.g.: "US -", "UK -", etc.)')
+                        ->columnSpan(1)
+                        ->suggestions([
+                            'US -',
+                            'UK -',
+                            'CA -'
+                        ])
+                        ->tagSuffix('*')
+                        ->splitKeys(['Tab', 'Return', ','])
+                        ->hidden(fn(Get $get): bool => ! $get('import_prefs.preprocess') || !$get('status')),
+
+                    Forms\Components\TagsInput::make('import_prefs.ignored_file_types')
+                        ->label('Ignored file types')
+                        ->helperText('Press [tab] or [return] to add item. You can ignore certain file types from being imported (.e.g.: ".mkv", ".mp4", etc.) This is useful for ignoring VOD or other unwanted content.')
+                        ->columnSpan(2)
+                        ->suggestions([
+                            '.avi',
+                            '.mkv',
+                            '.mp4',
+                        ])->splitKeys(['Tab', 'Return', ',', ' ']),
+                ]),
 
             Forms\Components\Section::make('Links')
                 ->description('These links are generated based on the current playlist configuration. Only enabled channels will be included.')

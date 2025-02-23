@@ -12,6 +12,8 @@ class ProcessEpgImportChunk implements ShouldQueue
 {
     use Queueable;
 
+    public $deleteWhenMissingModels = true;
+
     /**
      * Create a new job instance.
      */
@@ -29,7 +31,7 @@ class ProcessEpgImportChunk implements ShouldQueue
     {
         // Determine what percentage of the import this batch accounts for
         $totalJobsCount = $this->batchCount;
-        $chunkSize = 20;
+        $chunkSize = 10;
 
         // Process the jobs
         foreach (Job::whereIn('id', $this->jobs)->cursor() as $index => $job) {
@@ -37,7 +39,7 @@ class ProcessEpgImportChunk implements ShouldQueue
             if ($index % $chunkSize === 0) {
                 $epg = Epg::find($job->variables['epgId']);
                 $epg->update([
-                    'progress' => $epg->progress + ($chunkSize / $totalJobsCount) * 100,
+                    'progress' => min(99, $epg->progress + (($chunkSize / $totalJobsCount) * 100)),
                 ]);
             }
 

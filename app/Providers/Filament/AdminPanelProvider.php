@@ -2,14 +2,16 @@
 
 namespace App\Providers\Filament;
 
+use Exception;
 use App\Filament\Auth\Login;
 use App\Filament\Auth\EditProfile;
+use App\Filament\Pages\CustomDashboard;
+use App\Filament\Widgets\DiscordWidget;
 use App\Settings\GeneralSettings;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
 use Filament\Http\Middleware\DispatchServingFilamentEvent;
-use Filament\Pages;
 use Filament\Panel;
 use Filament\PanelProvider;
 use Filament\Support\Colors\Color;
@@ -22,11 +24,9 @@ use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\Blade;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
-use \Croustibat\FilamentJobsMonitor\FilamentJobsMonitorPlugin;
-use Doctrine\DBAL\Query\QueryException;
-use Exception;
 use Filament\Support\Enums\MaxWidth;
 use Hydrat\TableLayoutToggle\TableLayoutTogglePlugin;
+use Filament\View\PanelsRenderHook;
 
 class AdminPanelProvider extends PanelProvider
 {
@@ -42,12 +42,14 @@ class AdminPanelProvider extends PanelProvider
         $settings = [
             'navigation_position' => 'left',
             'show_breadcrumbs' => true,
+            'show_jobs_navigation' => false,
             'content_width' => MaxWidth::ScreenLarge,
         ];
         try {
             $settings = [
                 'navigation_position' => $userPreferences->navigation_position ?? $settings['navigation_position'],
                 'show_breadcrumbs' => $userPreferences->show_breadcrumbs ?? $settings['show_breadcrumbs'],
+                'show_jobs_navigation' => $userPreferences->show_jobs_navigation ?? $settings['show_jobs_navigation'],
                 'content_width' => $userPreferences->content_width ?? $settings['content_width'],
             ];
         } catch (Exception $e) {
@@ -59,31 +61,31 @@ class AdminPanelProvider extends PanelProvider
             ->path('')
             ->login(Login::class)
             ->profile(EditProfile::class, isSimple: false)
+            ->brandName('m3u editor')
             ->brandLogo(fn() => view('filament.admin.logo'))
-            ->brandLogoHeight('2rem')
+            ->favicon('/favicon.png')
+            ->brandLogoHeight('2.5rem')
             ->databaseNotifications()
             ->databaseNotificationsPolling('10s')
             ->colors([
                 'primary' => Color::Indigo,
             ])
+            ->globalSearchKeyBindings(['command+k', 'ctrl+k'])
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\\Filament\\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\\Filament\\Pages')
             ->pages([
-                Pages\Dashboard::class,
+                CustomDashboard::class
             ])
             ->breadcrumbs($settings['show_breadcrumbs'])
             ->discoverWidgets(in: app_path('Filament/Widgets'), for: 'App\\Filament\\Widgets')
             ->widgets([
-                // Widgets\AccountWidget::class,
-                // Widgets\FilamentInfoWidget::class,
+                Widgets\AccountWidget::class,
+                DiscordWidget::class,
             ])
             ->plugins([
-                FilamentJobsMonitorPlugin::make()
-                    ->enableNavigation(app()->environment('local')), // local only for testing...
                 TableLayoutTogglePlugin::make(),
             ])
             ->maxContentWidth($settings['content_width'])
-            // ->simplePageMaxContentWidth(MaxWidth::Small) // Login, sign in, etc.
             ->middleware([
                 EncryptCookies::class,
                 AddQueuedCookiesToResponse::class,
@@ -103,7 +105,12 @@ class AdminPanelProvider extends PanelProvider
                 '*/playlist.m3u',
                 '*/epg.xml',
                 'epgs/*/epg.xml'
-            ]);
+            ])
+            ->renderHook(
+                // PanelsRenderHook::BODY_END,
+                PanelsRenderHook::FOOTER,
+                fn() => view('footer')
+            );
 
         if ($settings['navigation_position'] === 'top') {
             $adminPanel->topNavigation();

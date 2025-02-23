@@ -22,9 +22,18 @@ class EpgResource extends Resource
 {
     protected static ?string $model = Epg::class;
 
+    protected static ?string $recordTitleAttribute = 'name';
+
+    public static function getGlobalSearchEloquentQuery(): Builder
+    {
+        return parent::getGlobalSearchEloquentQuery()
+            ->where('user_id', auth()->id());
+    }
+    
     protected static ?string $navigationIcon = 'heroicon-o-calendar-days';
 
     protected static ?string $label = 'EPG';
+    protected static ?string $pluralLabel = 'EPGs';
 
     protected static ?string $navigationGroup = 'EPG';
 
@@ -67,7 +76,7 @@ class EpgResource extends Resource
                     ->color(fn(EpgStatus $state) => $state->getColor()),
                 ProgressColumn::make('progress')
                     ->sortable()
-                    ->poll(fn($record) => $record->status === EpgStatus::Processing || $record->status === EpgStatus::Pending ? '5s' : null)
+                    ->poll(fn($record) => $record->status === EpgStatus::Processing || $record->status === EpgStatus::Pending ? '3s' : null)
                     ->toggleable(),
                 Tables\Columns\IconColumn::make('auto_sync')
                     ->label('Auto Sync')
@@ -224,32 +233,41 @@ class EpgResource extends Resource
                 ->required()
                 ->helperText('Enter the name of the EPG. Internal use only.')
                 ->maxLength(255),
-            Forms\Components\Toggle::make('auto_sync')
-                ->label('Automatically sync EPG')
-                ->helperText('When enabled, the EPG will be automatically re-synced at the specified interval.')
-                ->live()
-                ->inline(false)
-                ->default(true),
-            Forms\Components\Select::make('sync_interval')
-                ->label('Sync Every')
-                ->helperText('Default is every 24hr if left empty.')
-                ->options([
-                    '8hr' => '8hr',
-                    '12hr' => '12hr',
-                    '24hr' => '24hr',
-                    '2 days' => '2 days',
-                    '3 days' => '3 days',
-                    '1 week' => '1 week',
-                    '2 weeks' => '2 weeks',
-                    '1 month' => '1 month',
-                ])->hidden(fn(Get $get): bool => ! $get('auto_sync')),
-            Forms\Components\DateTimePicker::make('synced')
-                ->columnSpan(2)
-                ->suffix('UTC')
-                ->native(false)
-                ->label('Last Synced')
-                ->hidden(fn(Get $get, string $operation): bool => ! $get('auto_sync') || $operation === 'create')
-                ->helperText('EPG will be synced at the specified interval. Timestamp is automatically updated after each sync. Set to any time in the past (or future) and the next sync will run when the defined interval has passed since the time set.'),
+
+            Forms\Components\Section::make('Scheduling')
+                ->description('Auto sync and scheduling options')
+                ->columns(3)
+                ->schema([
+                    Forms\Components\Toggle::make('auto_sync')
+                        ->label('Automatically sync EPG')
+                        ->helperText('When enabled, the EPG will be automatically re-synced at the specified interval.')
+                        ->live()
+                        ->columnSpan(2)
+                        ->inline(false)
+                        ->default(true),
+                    Forms\Components\Select::make('sync_interval')
+                        ->label('Sync Every')
+                        ->helperText('Default is every 24hr if left empty.')
+                        ->columnSpan(1)
+                        ->options([
+                            '8 hours' => '8 hours',
+                            '12 hours' => '12 hours',
+                            '24 hours' => '24 hours',
+                            '2 days' => '2 days',
+                            '3 days' => '3 days',
+                            '1 week' => '1 week',
+                            '2 weeks' => '2 weeks',
+                            '1 month' => '1 month',
+                        ])->hidden(fn(Get $get): bool => ! $get('auto_sync')),
+                    Forms\Components\DateTimePicker::make('synced')
+                        ->columnSpan(3)
+                        ->suffix('UTC')
+                        ->native(false)
+                        ->label('Last Synced')
+                        ->hidden(fn(Get $get, string $operation): bool => ! $get('auto_sync') || $operation === 'create')
+                        ->helperText('EPG will be synced at the specified interval. Timestamp is automatically updated after each sync. Set to any time in the past (or future) and the next sync will run when the defined interval has passed since the time set.'),
+
+                ]),
 
             Forms\Components\Section::make('XMLTV file or URL')
                 ->description('You can either upload an XMLTV file or provide a URL to an XMLTV file. File should conform to the XMLTV format.')

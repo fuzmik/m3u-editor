@@ -8,6 +8,7 @@ use Throwable;
 use App\Enums\EpgStatus;
 use App\Models\Epg;
 use App\Models\Job;
+use App\Settings\GeneralSettings;
 use Filament\Notifications\Notification;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -20,6 +21,8 @@ use Illuminate\Support\LazyCollection;
 class ProcessEpgImport implements ShouldQueue
 {
     use Queueable;
+
+    public $deleteWhenMissingModels = true;
 
     // Giving a timeout of 10 minutes to the Job to process the file
     public $timeout = 600;
@@ -75,8 +78,16 @@ class ProcessEpgImport implements ShouldQueue
                 $url = str($this->epg->url)->replace(' ', '%20');
 
                 // We need to grab the file contents first and set to temp file
-                $userAgent = 'Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US; rv:1.8.1.13) Gecko/20080311 Firefox/2.0.0.13';
+                $userPreferences = app(GeneralSettings::class);
+                try {
+                    $verify = !$userPreferences->disable_ssl_verification;
+                    $userAgent = $userPreferences->playlist_agent_string;
+                } catch (Exception $e) {
+                    $verify = true;
+                    $userAgent = 'Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US; rv:1.8.1.13) Gecko/20080311 Firefox/2.0.0.13';
+                }
                 $response = Http::withUserAgent($userAgent)
+                    ->withOptions(['verify' => $verify])
                     ->timeout(60 * 5) // set timeout to five minues
                     ->throw()->get($url->toString());
 
@@ -100,11 +111,40 @@ class ProcessEpgImport implements ShouldQueue
                 }
             }
 
+            // Update progress
+            $epg->update(['progress' => 5]); // set to 5% to start
+
             // If we have XML data, let's process it
             if ($filePath) {
                 // Setup the XML readers
                 $channelReader = new XMLReader();
                 $channelReader->open('compress.zlib://' . $filePath);
+            } else {
+                // Log the exception
+                logger()->error("Error processing \"{$this->epg->name}\"");
+
+                // Send notification
+                $error = "Invalid EPG file. Unable to read or download your EPG file. Please check the URL or uploaded file and try again.";
+                Notification::make()
+                    ->danger()
+                    ->title("Error processing \"{$this->epg->name}\"")
+                    ->body('Please view your notifications for details.')
+                    ->broadcast($this->epg->user);
+                Notification::make()
+                    ->danger()
+                    ->title("Error processing \"{$this->epg->name}\"")
+                    ->body($error)
+                    ->sendToDatabase($this->epg->user);
+
+                // Update the EPG
+                $this->epg->update([
+                    'status' => EpgStatus::Failed,
+                    'synced' => now(),
+                    'errors' => $error,
+                    'progress' => 100,
+                    'processing' => false,
+                ]);
+                return;
             }
 
             // If reader valid, process the data!
@@ -122,7 +162,7 @@ class ProcessEpgImport implements ShouldQueue
                 ];
 
                 // Update progress
-                $epg->update(['progress' => 10]); // set to 10% to start
+                $epg->update(['progress' => 10]);
 
                 // Create a lazy collection to process the XML data
                 LazyCollection::make(function () use ($channelReader, $defaultChannelData) {
@@ -174,7 +214,7 @@ class ProcessEpgImport implements ShouldQueue
                             }
                         }
                     }
-                })->chunk(100)->each(function (LazyCollection $chunk) use ($epg, $batchNo) {
+                })->chunk(50)->each(function (LazyCollection $chunk) use ($epg, $batchNo) {
                     Job::create([
                         'title' => "Processing import for EPG: {$epg->name}",
                         'batch_no' => $batchNo,
@@ -188,11 +228,14 @@ class ProcessEpgImport implements ShouldQueue
                 // Close the XMLReaders, all done!
                 $channelReader->close();
 
+                // Update progress
+                $epg->update(['progress' => 15]);
+
                 // Get the jobs for the batch
                 $jobs = [];
-                $batchCount = Job::where('batch_no', $batchNo)->select('id')->count();
+                $batchCount = Job::where('batch_no', $batchNo)->count();
                 $jobsBatch = Job::where('batch_no', $batchNo)->select('id')->cursor();
-                $jobsBatch->chunk(100)->each(function ($chunk) use (&$jobs, $batchCount) {
+                $jobsBatch->chunk(50)->each(function ($chunk) use (&$jobs, $batchCount) {
                     $jobs[] = new ProcessEpgImportChunk($chunk->pluck('id')->toArray(), $batchCount);
                 });
 
@@ -239,7 +282,7 @@ class ProcessEpgImport implements ShouldQueue
                     ->body($error)
                     ->sendToDatabase($this->epg->user);
 
-                // Update the playlist
+                // Update the EPG
                 $this->epg->update([
                     'status' => EpgStatus::Failed,
                     'synced' => now(),

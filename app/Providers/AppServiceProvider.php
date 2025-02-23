@@ -8,6 +8,7 @@ use App\Jobs\ReloadApp;
 use App\Models\CustomPlaylist;
 use App\Models\MergedPlaylist;
 use App\Models\Epg;
+use App\Models\Group;
 use App\Models\Playlist;
 use App\Settings\GeneralSettings;
 use Illuminate\Database\Eloquent\Model;
@@ -49,14 +50,14 @@ class AppServiceProvider extends ServiceProvider
             Playlist::creating(function (Playlist $playlist) {
                 $playlist->user_id = auth()->id();
                 if (!$playlist->sync_interval) {
-                    $playlist->sync_interval = '24hr';
+                    $playlist->sync_interval = '24 hours';
                 }
                 $playlist->uuid = \Illuminate\Support\Str::orderedUuid()->toString();
                 return $playlist;
             });
             Playlist::updating(function (Playlist $playlist) {
                 if (!$playlist->sync_interval) {
-                    $playlist->sync_interval = '24hr';
+                    $playlist->sync_interval = '24 hours';
                 }
                 return $playlist;
             });
@@ -66,14 +67,14 @@ class AppServiceProvider extends ServiceProvider
             Epg::creating(function (Epg $epg) {
                 $epg->user_id = auth()->id();
                 if (!$epg->sync_interval) {
-                    $epg->sync_interval = '24hr';
+                    $epg->sync_interval = '24 hours';
                 }
                 $epg->uuid = \Illuminate\Support\Str::orderedUuid()->toString();
                 return $epg;
             });
             Epg::updating(function (Epg $epg) {
                 if (!$epg->sync_interval) {
-                    $epg->sync_interval = '24hr';
+                    $epg->sync_interval = '24 hours';
                 }
                 return $epg;
             });
@@ -92,6 +93,16 @@ class AppServiceProvider extends ServiceProvider
                 $customPlaylist->user_id = auth()->id();
                 $customPlaylist->uuid = \Illuminate\Support\Str::orderedUuid()->toString();
                 return $customPlaylist;
+            });
+
+            // Groups
+            Group::updated(function (Group $group) {
+                $changes = $group->getChanges();
+                if (isset($changes['name'])) {
+                    // Update the name of the group in the channels
+                    $group->channels()
+                        ->update(['group' => $group->name]);
+                }
             });
         } catch (\Throwable $e) {
             // Log the error

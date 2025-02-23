@@ -7,6 +7,8 @@ use App\Enums\PlaylistStatus;
 use App\Models\Group;
 use App\Models\Job;
 use App\Models\Playlist;
+use App\Settings\GeneralSettings;
+use Exception;
 use M3uParser\M3uParser;
 use Filament\Notifications\Notification;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -14,11 +16,14 @@ use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\LazyCollection;
 
 class ProcessM3uImport implements ShouldQueue
 {
     use Queueable;
+
+    public $deleteWhenMissingModels = true;
 
     // Giving a timeout of 15 minutes to the Job to process the file
     public $timeout = 60 * 15;
@@ -69,27 +74,93 @@ class ProcessM3uImport implements ShouldQueue
             $userId = $playlist->user_id;
             $batchNo = Str::orderedUuid()->toString();
 
-            // Check if preprocessing is enabled
-            $preprocess = $playlist->import_prefs['preprocess'] ?? false;
+            $fileContent = null;
+            $filePath = null;
+            if ($playlist->url) {
+                // Normalize the playlist url and get the filename
+                $url = str($playlist->url)->replace(' ', '%20');
 
-            // Normalize the playlist url and get the filename
-            $url = str($playlist->url)->replace(' ', '%20');
+                // We need to grab the file contents first and set to temp file
+                $userPreferences = app(GeneralSettings::class);
+                try {
+                    $verify = !$userPreferences->disable_ssl_verification;
+                    $userAgent = $userPreferences->playlist_agent_string;
+                } catch (Exception $e) {
+                    $verify = true;
+                    $userAgent = 'Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US; rv:1.8.1.13) Gecko/20080311 Firefox/2.0.0.13';
+                }
+                $response = Http::withUserAgent($userAgent)
+                    ->withOptions(['verify' => $verify])
+                    ->timeout(60 * 5) // set timeout to five minues
+                    ->throw()->get($url->toString());
 
-            // We need to grab the file contents first and set to temp file
-            $userAgent = 'Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US; rv:1.8.1.13) Gecko/20080311 Firefox/2.0.0.13';
-            $response = Http::withUserAgent($userAgent)
-                ->timeout(60 * 5) // set timeout to five minues
-                ->throw()->get($url->toString());
+                if ($response->ok()) {
+                    // Remove previous saved files
+                    Storage::disk('local')->deleteDirectory($playlist->folder_path);
 
-            // If fetched successfully, process the results!
-            if ($response->ok()) {
+                    // Get the content
+                    $fileContent = $response->body();
+
+                    // Save the file to local storage
+                    Storage::disk('local')->put(
+                        $playlist->file_path,
+                        $fileContent
+                    );
+
+                    // Update the file path
+                    $filePath = Storage::disk('local')->path($playlist->file_path);
+                }
+            } else {
+                // Get uploaded file contents
+                if ($playlist->uploads && Storage::disk('local')->exists($playlist->uploads)) {
+                    // Get the contents and the path
+                    $fileContent = Storage::disk('local')->get($playlist->uploads);
+                    $filePath = Storage::disk('local')->path($playlist->uploads);
+                }
+            }
+
+            // Update progress
+            $playlist->update(['progress' => 5]); // set to 5% to start
+
+            // If file path is set, we can process the file
+            if ($fileContent) {
                 $m3uParser = new M3uParser();
                 $m3uParser->addDefaultTags();
-                $data = $m3uParser->parse($response->body());
+                $data = $m3uParser->parse($fileContent);
 
                 // Update progress
-                $playlist->update(['progress' => 10]); // set to 10% to start
+                $playlist->update(['progress' => 10]);
+            } else {
+                // Log the exception
+                logger()->error("Error processing \"{$playlist->name}\"");
 
+                // Send notification
+                $error = "Invalid playlist file. Unable to read or download your playlist file. Please check the URL or uploaded file and try again.";
+                Notification::make()
+                    ->danger()
+                    ->title("Error processing \"{$playlist->name}\"")
+                    ->body('Please view your notifications for details.')
+                    ->broadcast($playlist->user);
+                Notification::make()
+                    ->danger()
+                    ->title("Error processing \"{$playlist->name}\"")
+                    ->body($error)
+                    ->sendToDatabase($playlist->user);
+
+                // Update the Playlist
+                $playlist->update([
+                    'status' => PlaylistStatus::Failed,
+                    'channels' => 0, // not using...
+                    'synced' => now(),
+                    'errors' => $error,
+                    'progress' => 100,
+                    'processing' => false,
+                ]);
+                return;
+            }
+
+            // If fetched successfully, process the results!
+            if ($m3uParser) {
                 // Setup common field values
                 $channelFields = [
                     'title' => null,
@@ -97,37 +168,58 @@ class ProcessM3uImport implements ShouldQueue
                     'url' => null,
                     'logo' => null,
                     'group' => null,
+                    'group_internal' => null,
                     'stream_id' => null,
                     'lang' => null,
                     'country' => null,
                     'playlist_id' => $playlistId,
                     'user_id' => $userId,
                     'import_batch_no' => $batchNo,
+                    'enabled' => $playlist->enable_channels,
                 ];
 
                 // Setup the attribute -> key mapping
                 $attributes = [
-                    'tvg-name' => 'name',
-                    'tvg-id' => 'stream_id',
-                    'tvg-logo' => 'logo',
-                    'group-title' => 'group',
+                    'name' => 'tvg-name',
+                    'stream_id' => 'tvg-id',
+                    'logo' => 'tvg-logo',
+                    'group' => 'group-title',
+                    'group_internal' => 'group-title',
+                    'channel' => 'tvg-chno',
+                    'lang' => 'tvg-language',
+                    'country' => 'tvg-country',
                 ];
+
+                // Check if preprocessing is enabled
+                $preprocess = $playlist->import_prefs['preprocess'] ?? false;
 
                 // Extract the channels and groups from the m3u
                 $groups = [];
+                $excludeFileTypes = $playlist->import_prefs['ignored_file_types'] ?? [];
                 $selectedGroups = $playlist->import_prefs['selected_groups'] ?? [];
-                LazyCollection::make(function () use ($data, $channelFields, $attributes) {
+                $includedGroupPrefixes = $playlist->import_prefs['included_group_prefixes'] ?? [];
+                LazyCollection::make(function () use ($data, $channelFields, $attributes, $excludeFileTypes) {
                     foreach ($data as $item) {
+                        $url = $item->getPath();
+                        foreach ($excludeFileTypes as $excludeFileType) {
+                            if (str_ends_with($url, $excludeFileType)) {
+                                continue 2;
+                            }
+                        }
                         $channel = [
                             ...$channelFields,
-                            'url' => $item->getPath(),
+                            'url' => $url,
                         ];
                         foreach ($item->getExtTags() as $extTag) {
                             if ($extTag instanceof \M3uParser\Tag\ExtInf) {
                                 $channel['title'] = $extTag->getTitle();
-                                foreach ($attributes as $attribute => $key) {
+                                foreach ($attributes as $key => $attribute) {
                                     if ($extTag->hasAttribute($attribute)) {
-                                        $channel[$key] = $extTag->getAttribute($attribute);
+                                        if ($attribute === 'tvg-chno') {
+                                            $channel[$key] = (int)$extTag->getAttribute($attribute);
+                                        } else {
+                                            $channel[$key] = $extTag->getAttribute($attribute);
+                                        }
                                     }
                                 }
                             }
@@ -139,21 +231,44 @@ class ProcessM3uImport implements ShouldQueue
                         }
                         yield $channel;
                     }
-                })->groupBy('group')->chunk(10)->each(function (LazyCollection $grouped) use (&$groups, $selectedGroups, $preprocess, $userId, $playlistId, $batchNo) {
-                    $grouped->each(function ($channels, $groupName) use (&$groups, $selectedGroups, $preprocess, $userId, $playlistId, $batchNo) {
+                })->groupBy('group')->chunk(10)->each(function (LazyCollection $grouped) use (&$groups, $selectedGroups, $includedGroupPrefixes, $preprocess, $userId, $playlistId, $batchNo) {
+                    $grouped->each(function ($channels, $groupName) use (&$groups, $selectedGroups, $includedGroupPrefixes, $preprocess, $userId, $playlistId, $batchNo) {
                         $groupNames = explode(';', $groupName);
                         foreach ($groupNames as $groupName) {
+                            // Trim whitespace
                             $groupName = trim($groupName);
+
+                            // Add to groups if not already added
                             $groups[] = $groupName;
-                            if (!$preprocess || in_array($groupName, $selectedGroups)) {
+                            $shouldAdd = !$preprocess;
+                            if (!$shouldAdd) {
+                                // If preprocessing, check if group is selected...
+                                $shouldAdd = in_array($groupName, $selectedGroups);
+                            }
+                            if (!$shouldAdd) {
+                                // ...if group not selected, check if group starts with any of the included prefixes
+                                // (only check if the group isn't directly included already)
+                                foreach ($includedGroupPrefixes as $prefix) {
+                                    if (str_starts_with($groupName, $prefix)) {
+                                        $shouldAdd = true;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            // Confirm if adding or skipping
+                            if ($shouldAdd) {
+                                // Add group and associated channels
                                 $group = Group::where([
-                                    'name' => $groupName,
+                                    'name_internal' => $groupName,
                                     'playlist_id' => $playlistId,
                                     'user_id' => $userId,
+                                    'custom' => false,
                                 ])->first();
                                 if (!$group) {
                                     $group = Group::create([
                                         'name' => $groupName,
+                                        'name_internal' => $groupName,
                                         'playlist_id' => $playlistId,
                                         'user_id' => $userId,
                                         'import_batch_no' => $batchNo,
@@ -163,7 +278,7 @@ class ProcessM3uImport implements ShouldQueue
                                         'import_batch_no' => $batchNo,
                                     ]);
                                 }
-                                $channels->chunk(100)->each(function ($chunk) use ($playlistId, $batchNo, $group) {
+                                $channels->chunk(50)->each(function ($chunk) use ($playlistId, $batchNo, $group) {
                                     Job::create([
                                         'title' => "Processing channel import for group: {$group->name}",
                                         'batch_no' => $batchNo,
@@ -179,8 +294,14 @@ class ProcessM3uImport implements ShouldQueue
                     });
                 });
 
+                // Remove duplicate groups
+                $groups = array_values(array_unique($groups));
+
+                // Update progress
+                $playlist->update(['progress' => 15]);
+
                 // Check if preprocessing, and not groups selected yet
-                if ($preprocess && count($selectedGroups) === 0) {
+                if ($preprocess && count($selectedGroups) === 0 && count($includedGroupPrefixes) === 0) {
                     $completedIn = $start->diffInSeconds(now());
                     $completedInRounded = round($completedIn, 2);
                     $playlist->update([
@@ -203,14 +324,14 @@ class ProcessM3uImport implements ShouldQueue
                     Notification::make()
                         ->success()
                         ->title('Playlist Synced')
-                        ->body("\"{$playlist->name}\" has been preprocessed successfully. You can now select the groups you would like to import and process the playlist again to import your selected groups. Preprocessed completed in {$completedInRounded} seconds.")
+                        ->body("\"{$playlist->name}\" has been preprocessed successfully. You can now select the groups you would like to import and process the playlist again to import your selected groups. Preprocessing completed in {$completedInRounded} seconds.")
                         ->sendToDatabase($playlist->user);
                 } else {
                     // Get the jobs for the batch
                     $jobs = [];
-                    $batchCount = Job::where('batch_no', $batchNo)->select('id')->count();
+                    $batchCount = Job::where('batch_no', $batchNo)->count();
                     $jobsBatch = Job::where('batch_no', $batchNo)->select('id')->cursor();
-                    $jobsBatch->chunk(100)->each(function ($chunk) use (&$jobs, $batchCount) {
+                    $jobsBatch->chunk(50)->each(function ($chunk) use (&$jobs, $batchCount) {
                         $jobs[] = new ProcessM3uImportChunk($chunk->pluck('id')->toArray(), $batchCount);
                     });
 
@@ -242,7 +363,7 @@ class ProcessM3uImport implements ShouldQueue
                         })->dispatch();
                 }
             } else {
-                $error = "Unable to fetch the playlist from the provided URL.";
+                $error = "Unable to parse the playlist, invalid file found. Please check the URL or re-upload your file and try to sync again.";
                 Notification::make()
                     ->danger()
                     ->title("Error processing \"{$this->playlist->name}\"")

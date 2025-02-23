@@ -12,6 +12,8 @@ class ProcessM3uImportChunk implements ShouldQueue
 {
     use Queueable;
 
+    public $deleteWhenMissingModels = true;
+
     /**
      * Create a new job instance.
      */
@@ -29,7 +31,7 @@ class ProcessM3uImportChunk implements ShouldQueue
     {
         // Determine what percentage of the import this batch accounts for
         $totalJobsCount = $this->batchCount;
-        $chunkSize = 20;
+        $chunkSize = 10;
 
         // Process the jobs
         foreach (Job::whereIn('id', $this->jobs)->cursor() as $index => $job) {
@@ -37,7 +39,7 @@ class ProcessM3uImportChunk implements ShouldQueue
             if ($index % $chunkSize === 0) {
                 $playlist = Playlist::find($job->variables['playlistId']);
                 $playlist->update([
-                    'progress' => $playlist->progress + ($chunkSize / $totalJobsCount) * 100,
+                    'progress' => min(99, $playlist->progress + (($chunkSize / $totalJobsCount) * 100)),
                 ]);
             }
 
@@ -57,14 +59,17 @@ class ProcessM3uImportChunk implements ShouldQueue
             }
 
             // Upsert the channels
-            Channel::upsert($bulk, uniqueBy: ['name', 'group', 'playlist_id', 'user_id'], update: [
+            Channel::upsert($bulk, uniqueBy: ['name', 'group_internal', 'playlist_id', 'user_id'], update: [
                 // Don't update the following fields...
                 // 'title',
                 // 'name',
                 // 'group',
+                // 'group_internal',
                 // 'playlist_id',
                 // 'user_id',
                 // 'logo',
+                // 'enabled',
+                // 'epg_channel_id',
                 // ...only update the following fields
                 'url',
                 'stream_id',
