@@ -1,8 +1,8 @@
 name: m3u-editor
 services:
   m3u-editor:
-    platform: linux/x86_64
-    image: registry.ovcn.ddnsfree.com/m3u-editor:latest
+#    platform: linux/arm64
+    image: localhost:5000/m3u-editor-arm:latest
     container_name: m3u-editor
 #    env_file: .env
     environment:
@@ -19,7 +19,7 @@ services:
       - 36400:36400 # app
       - 36800:36800 # websockets/broadcasting
     labels:
-      cosmos-force-network-mode: "cosmos-m3u-editor-default"
+      cosmos-force-network-mode: "m3u-editor_default"
       cosmos-force-network-secured: "true"
 networks: {}
 volumes:
