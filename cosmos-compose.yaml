@@ -1,19 +1,26 @@
 name: m3u-editor
 services:
   m3u-editor:
-    image: sparkison/m3u-editor:latest
+    platform: linux/x86_64
+    image: registry.ovcn.ddnsfree.com/m3u-editor:latest
     container_name: m3u-editor
+#    env_file: .env
     environment:
       - PUID=1000
       - PGID=1000
       - TZ=auto
       - WWWUSER=sail
+      - LARAVEL_SAIL=1
+      - XDEBUG_MODE=off
     volumes:
       - m3u-editor-config:/var/www/config
     restart: unless-stopped
     ports:
       - 36400:36400 # app
       - 36800:36800 # websockets/broadcasting
+    labels:
+      cosmos-force-network-mode: "cosmos-m3u-editor-default"
+      cosmos-force-network-secured: "true"
 networks: {}
 volumes:
   m3u-editor-config:
