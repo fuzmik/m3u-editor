@@ -23,6 +23,8 @@ class ProcessM3uImport implements ShouldQueue
 {
     use Queueable;
 
+    public $maxItems = 50000;
+
     public $deleteWhenMissingModels = true;
 
     // Giving a timeout of 15 minutes to the Job to process the file
@@ -43,11 +45,12 @@ class ProcessM3uImport implements ShouldQueue
      */
     public function handle(): void
     {
-        // Don't update if currently processing
-        if ($this->playlist->processing) {
-            return;
-        }
         if (!$this->force) {
+            // Don't update if currently processing
+            if ($this->playlist->processing) {
+                return;
+            }
+
             // Check if auto sync is enabled, or the playlist hasn't been synced yet
             if (!$this->playlist->auto_sync && $this->playlist->synced) {
                 return;
@@ -57,6 +60,7 @@ class ProcessM3uImport implements ShouldQueue
         // Update the playlist status to processing
         $this->playlist->update([
             'processing' => true,
+            'status' => PlaylistStatus::Processing,
             'errors' => null,
             'progress' => 0,
         ]);
@@ -74,9 +78,8 @@ class ProcessM3uImport implements ShouldQueue
             $userId = $playlist->user_id;
             $batchNo = Str::orderedUuid()->toString();
 
-            $fileContent = null;
             $filePath = null;
-            if ($playlist->url) {
+            if ($playlist->url && str_starts_with($playlist->url, 'http')) {
                 // Normalize the playlist url and get the filename
                 $url = str($playlist->url)->replace(' ', '%20');
 
@@ -98,13 +101,10 @@ class ProcessM3uImport implements ShouldQueue
                     // Remove previous saved files
                     Storage::disk('local')->deleteDirectory($playlist->folder_path);
 
-                    // Get the content
-                    $fileContent = $response->body();
-
                     // Save the file to local storage
                     Storage::disk('local')->put(
                         $playlist->file_path,
-                        $fileContent
+                        $response->body()
                     );
 
                     // Update the file path
@@ -114,53 +114,21 @@ class ProcessM3uImport implements ShouldQueue
                 // Get uploaded file contents
                 if ($playlist->uploads && Storage::disk('local')->exists($playlist->uploads)) {
                     // Get the contents and the path
-                    $fileContent = Storage::disk('local')->get($playlist->uploads);
                     $filePath = Storage::disk('local')->path($playlist->uploads);
+                } else if ($playlist->url) {
+                    $filePath = $playlist->url;
                 }
+                
             }
 
             // Update progress
             $playlist->update(['progress' => 5]); // set to 5% to start
 
             // If file path is set, we can process the file
-            if ($fileContent) {
-                $m3uParser = new M3uParser();
-                $m3uParser->addDefaultTags();
-                $data = $m3uParser->parse($fileContent);
-
+            if ($filePath) {
                 // Update progress
                 $playlist->update(['progress' => 10]);
-            } else {
-                // Log the exception
-                logger()->error("Error processing \"{$playlist->name}\"");
 
-                // Send notification
-                $error = "Invalid playlist file. Unable to read or download your playlist file. Please check the URL or uploaded file and try again.";
-                Notification::make()
-                    ->danger()
-                    ->title("Error processing \"{$playlist->name}\"")
-                    ->body('Please view your notifications for details.')
-                    ->broadcast($playlist->user);
-                Notification::make()
-                    ->danger()
-                    ->title("Error processing \"{$playlist->name}\"")
-                    ->body($error)
-                    ->sendToDatabase($playlist->user);
-
-                // Update the Playlist
-                $playlist->update([
-                    'status' => PlaylistStatus::Failed,
-                    'channels' => 0, // not using...
-                    'synced' => now(),
-                    'errors' => $error,
-                    'progress' => 100,
-                    'processing' => false,
-                ]);
-                return;
-            }
-
-            // If fetched successfully, process the results!
-            if ($m3uParser) {
                 // Setup common field values
                 $channelFields = [
                     'title' => null,
@@ -198,9 +166,15 @@ class ProcessM3uImport implements ShouldQueue
                 $excludeFileTypes = $playlist->import_prefs['ignored_file_types'] ?? [];
                 $selectedGroups = $playlist->import_prefs['selected_groups'] ?? [];
                 $includedGroupPrefixes = $playlist->import_prefs['included_group_prefixes'] ?? [];
-                LazyCollection::make(function () use ($data, $channelFields, $attributes, $excludeFileTypes) {
-                    foreach ($data as $item) {
+                LazyCollection::make(function () use ($filePath, $channelFields, $attributes, $excludeFileTypes) {
+                    $m3uParser = new M3uParser();
+                    $m3uParser->addDefaultTags();
+                    $count = 0;
+                    foreach ($m3uParser->parseFile($filePath, max_length: 2048) as $item) {
                         $url = $item->getPath();
+                        if ($count++ >= $this->maxItems) {
+                            break;
+                        }
                         foreach ($excludeFileTypes as $excludeFileType) {
                             if (str_ends_with($url, $excludeFileType)) {
                                 continue 2;
@@ -243,7 +217,10 @@ class ProcessM3uImport implements ShouldQueue
                             $shouldAdd = !$preprocess;
                             if (!$shouldAdd) {
                                 // If preprocessing, check if group is selected...
-                                $shouldAdd = in_array($groupName, $selectedGroups);
+                                $shouldAdd = in_array(
+                                    $groupName,
+                                    $selectedGroups
+                                );
                             }
                             if (!$shouldAdd) {
                                 // ...if group not selected, check if group starts with any of the included prefixes
@@ -331,7 +308,7 @@ class ProcessM3uImport implements ShouldQueue
                     $jobs = [];
                     $batchCount = Job::where('batch_no', $batchNo)->count();
                     $jobsBatch = Job::where('batch_no', $batchNo)->select('id')->cursor();
-                    $jobsBatch->chunk(50)->each(function ($chunk) use (&$jobs, $batchCount) {
+                    $jobsBatch->chunk(100)->each(function ($chunk) use (&$jobs, $batchCount) {
                         $jobs[] = new ProcessM3uImportChunk($chunk->pluck('id')->toArray(), $batchCount);
                     });
 
@@ -363,17 +340,23 @@ class ProcessM3uImport implements ShouldQueue
                         })->dispatch();
                 }
             } else {
-                $error = "Unable to parse the playlist, invalid file found. Please check the URL or re-upload your file and try to sync again.";
+                // Log the exception
+                logger()->error("Error processing \"{$playlist->name}\"");
+
+                // Send notification
+                $error = "Invalid playlist file. Unable to read or download your playlist file. Please check the URL or uploaded file and try again.";
                 Notification::make()
                     ->danger()
-                    ->title("Error processing \"{$this->playlist->name}\"")
+                    ->title("Error processing \"{$playlist->name}\"")
                     ->body('Please view your notifications for details.')
-                    ->broadcast($this->playlist->user);
+                    ->broadcast($playlist->user);
                 Notification::make()
                     ->danger()
-                    ->title("Error processing \"{$this->playlist->name}\"")
+                    ->title("Error processing \"{$playlist->name}\"")
                     ->body($error)
-                    ->sendToDatabase($this->playlist->user);
+                    ->sendToDatabase($playlist->user);
+
+                // Update the Playlist
                 $playlist->update([
                     'status' => PlaylistStatus::Failed,
                     'channels' => 0, // not using...
@@ -382,6 +365,7 @@ class ProcessM3uImport implements ShouldQueue
                     'progress' => 100,
                     'processing' => false,
                 ]);
+                return;
             }
         } catch (\Exception $e) {
             // Log the exception
