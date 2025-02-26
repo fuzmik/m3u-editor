@@ -1,10 +1,8 @@
 name: m3u-editor
 services:
   m3u-editor:
-#    platform: linux/arm64
-    image: localhost:5000/m3u-editor-arm:latest
+    image: #need to build one for arm64
     container_name: m3u-editor
-#    env_file: .env
     environment:
       - PUID=1000
       - PGID=1000
@@ -12,8 +10,9 @@ services:
       - WWWUSER=sail
       - LARAVEL_SAIL=1
       - XDEBUG_MODE=off
+      - OCTANE_HTTPS=true #need to enable for https
     volumes:
-      - m3u-editor-config:/var/www/config
+      - ./config:/var/www/config
     restart: unless-stopped
     ports:
       - 36400:36400 # app

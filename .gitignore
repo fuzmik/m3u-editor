@@ -31,3 +31,7 @@ docker-compose.yml
 DockerfileDev
 .rr.yaml
 rr
+output-composed.yaml
+config/epgs
+config/logs
+config/env
