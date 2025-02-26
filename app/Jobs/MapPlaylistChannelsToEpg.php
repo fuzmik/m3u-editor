@@ -112,8 +112,8 @@ class MapPlaylistChannelsToEpg implements ShouldQueue
                     $epgChannel = $epg->channels()
                         ->where('channel_id', '!=', '')
                         ->where(function ($sub) use ($channel) {
-                            return $sub->whereRaw('LOWER(`channel_id`) = ?', [strtolower(trim(($channel->name)))])
-                                ->orWhereRaw('LOWER(`channel_id`) = ?', [strtolower(trim(($channel->group_internal)))]);
+                            return $sub->whereRaw('LOWER(`channel_id`) = ?', [strtolower(trim(($channel->stream_id)))])
+                                ->orWhereRaw('LOWER(`channel_id`) = ?', [strtolower(trim(($channel->name)))]);
                         })
                         ->select('id', 'channel_id')
                         ->first();
@@ -121,8 +121,14 @@ class MapPlaylistChannelsToEpg implements ShouldQueue
                     // If EPG channel found, link it to the Playlist channel
                     if ($epgChannel) {
                         $mappedCount++;
-                        $channel->epg_channel_id = $epgChannel->id;
-                        yield $channel->toArray();
+                        yield [
+                            'title' => $channel->title,
+                            'name' => $channel->name,
+                            'group_internal' => $channel->group_internal,
+                            'playlist_id' => $channel->playlist_id,
+                            'user_id' => $channel->user_id,
+                            'epg_channel_id' => $epgChannel->id,
+                        ];
                     }
                 }
             })->chunk(50)->each(function ($chunk) use ($epg, $batchNo) {

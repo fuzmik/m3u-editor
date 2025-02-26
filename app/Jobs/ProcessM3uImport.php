@@ -132,11 +132,11 @@ class ProcessM3uImport implements ShouldQueue
                 // Setup common field values
                 $channelFields = [
                     'title' => null,
-                    'name' => null,
+                    'name' => '',
                     'url' => null,
                     'logo' => null,
-                    'group' => null,
-                    'group_internal' => null,
+                    'group' => '',
+                    'group_internal' => '',
                     'stream_id' => null,
                     'lang' => null,
                     'country' => null,
@@ -192,16 +192,20 @@ class ProcessM3uImport implements ShouldQueue
                                         if ($attribute === 'tvg-chno') {
                                             $channel[$key] = (int)$extTag->getAttribute($attribute);
                                         } else {
-                                            $channel[$key] = $extTag->getAttribute($attribute);
+                                            $channel[$key] = str_replace(
+                                                [',', '"', "'"],
+                                                '',
+                                                $extTag->getAttribute($attribute)
+                                            );
                                         }
                                     }
                                 }
                             }
                         }
-                        if (!isset($channel['name'])) {
+                        if (!isset($channel['title'])) {
                             // Name is required, fallback to stream ID if available, otherwise set to title
                             // Channel will be skipped on import of not set to something...
-                            $channel['name'] = $channel['stream_id'] ?? $channel['title'];
+                            $channel['title'] = $channel['stream_id'] ?? $channel['name'];
                         }
                         yield $channel;
                     }
@@ -210,7 +214,11 @@ class ProcessM3uImport implements ShouldQueue
                         $groupNames = explode(';', $groupName);
                         foreach ($groupNames as $groupName) {
                             // Trim whitespace
-                            $groupName = trim($groupName);
+                            $groupName = str_replace(
+                                [',', '"', "'"],
+                                '',
+                                trim($groupName)
+                            );
 
                             // Add to groups if not already added
                             $groups[] = $groupName;
@@ -237,15 +245,15 @@ class ProcessM3uImport implements ShouldQueue
                             if ($shouldAdd) {
                                 // Add group and associated channels
                                 $group = Group::where([
-                                    'name_internal' => $groupName,
+                                    'name_internal' => $groupName ?? '',
                                     'playlist_id' => $playlistId,
                                     'user_id' => $userId,
                                     'custom' => false,
                                 ])->first();
                                 if (!$group) {
                                     $group = Group::create([
-                                        'name' => $groupName,
-                                        'name_internal' => $groupName,
+                                        'name' => $groupName ?? '',
+                                        'name_internal' => $groupName ?? '',
                                         'playlist_id' => $playlistId,
                                         'user_id' => $userId,
                                         'import_batch_no' => $batchNo,

@@ -47,14 +47,13 @@ class MapEpgToChannels implements ShouldQueue
             // Add the channel for insert/update
             foreach ($job->payload as $channel) {
                 // Add the channel for insert/update
-                unset($channel['id']);
                 $bulk[] = [
                     ...$channel,
                 ];
             }
 
             // Upsert the channels
-            Channel::upsert($bulk, uniqueBy: ['name', 'group_internal', 'playlist_id', 'user_id'], update: [
+            Channel::upsert($bulk, uniqueBy: ['title', 'name', 'group_internal', 'playlist_id'], update: [
                 // Don't update the following fields...
                 // 'title',
                 // 'name',
