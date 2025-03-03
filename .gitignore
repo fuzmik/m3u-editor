@@ -35,3 +35,4 @@ config/logs/laravel.log
 config/logs/queue.log
 config/logs/swoole_http.log
 config/logs/websocket.log
+config
