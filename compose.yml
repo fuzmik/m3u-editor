@@ -1,0 +1,77 @@
+networks:
+  m3u-editor_default:
+#    external: true
+    name: "m3u-editor_default"
+
+services:
+  m3u-editor:
+
+    container_name: "m3u-editor"
+
+    entrypoint:
+      - "start-container"
+
+    environment:
+      - "WWWUSER=sail"
+      - "LARAVEL_SAIL=1"
+      - "XDEBUG_MODE=off"
+      - "OCTANE_HTTPS=true"
+      - "PUID=1000"
+      - "PGID=1000"
+      - "TZ=auto"
+      - "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/root/.composer/vendor/bin"
+      - "WWWGROUP=sail"
+      - "APP_PORT=36400"
+      - "REVERB_PORT=36800"
+      - "SUPERVISOR_PHP_USER=root"
+      - "SUPERVISOR_PHP_COMMAND=/usr/bin/php -d variables_order=EGPCS /var/www/html/artisan octane:start\
+        \ --workers=4 --task-workers=6 --server=swoole --host=0.0.0.0 --port=36400"
+      - "QUEUE_PHP_COMMAND=/usr/bin/php /var/www/html/artisan horizon"
+      - "WEBSOCKET_PHP_COMMAND=/usr/bin/php /var/www/html/artisan reverb:start --host=0.0.0.0 --port=36800\
+        \ --no-interaction --no-ansi"
+      - "COMPOSER_ALLOW_SUPERUSER=1"
+
+ #   hostname: "d85d569080f8"
+
+    image: "registry.ovcn.ddnsfree.com/m3u-editor:latest"
+
+ #   ipc: "private"
+
+    labels:
+      com.docker.compose.config-hash: "7723377553b63891af71287f8b2cbe8867ec6157494d1d07aa6e9dddacfd9aa6"
+      com.docker.compose.container-number: "1"
+      com.docker.compose.depends_on: ""
+      com.docker.compose.image: "sha256:90aecc04d7d6106c3000c0fcc2134af75fbea24d96549841b84ea758dc6e4c6b"
+      com.docker.compose.oneoff: "False"
+      com.docker.compose.project: "m3u-editor"
+      com.docker.compose.project.config_files: "/home/ubuntu/src/m3u-editor/cosmos-compose.yaml"
+      com.docker.compose.project.working_dir: "/home/ubuntu/src/m3u-editor"
+      com.docker.compose.service: "m3u-editor"
+      com.docker.compose.version: "2.33.0"
+      cosmos-force-network-mode: "m3u-editor_default"
+      cosmos-force-network-secured: "true"
+
+    logging:
+      driver: "json-file"
+      options: {}
+
+    networks:
+      - "m3u-editor_default"
+
+    ports:
+      - "36400:36400/tcp"
+      - "36800:36800/tcp"
+
+    restart: "unless-stopped"
+
+    volumes:
+      - "m3u-editor:/var/www/config"
+
+    working_dir: "/var/www/html"
+
+#version: "3.6"
+
+volumes:
+  m3u-editor:
+    name: m3u-editor
+ #   external: true
