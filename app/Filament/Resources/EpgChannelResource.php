@@ -45,7 +45,8 @@ class EpgChannelResource extends Resource
             ->filtersTriggerAction(function ($action) {
                 return $action->button()->label('Filters');
             })
-            ->paginated([10, 25, 50, 100, 250])
+            ->deferLoading()
+            ->paginated([10, 25, 50, 100])
             ->defaultPaginationPageOption(25)
             ->columns([
                 Tables\Columns\ImageColumn::make('icon')
@@ -98,8 +99,10 @@ class EpgChannelResource extends Resource
                     ->searchable(),
             ])
             ->actions([
-                Tables\Actions\EditAction::make(),
-            ])
+                Tables\Actions\EditAction::make()
+                    ->button()
+                    ->hiddenLabel(),
+            ], position: Tables\Enums\ActionsPosition::BeforeCells)
             ->bulkActions([
                 // Tables\Actions\BulkActionGroup::make([
                 //     Tables\Actions\DeleteBulkAction::make(),

@@ -64,12 +64,12 @@ class EpgMapResource extends Resource
                     ->sortable(),
                 Tables\Columns\ToggleColumn::make('override')
                     ->toggleable()
-                    ->tooltip('Override existing EPG mappings')
+                    ->tooltip((fn(EpgMap $record) => $record->playlist_id !== null ? 'Override existing EPG mappings' : 'Not available for custom channel mappings'))
                     ->disabled((fn(EpgMap $record) => $record->playlist_id === null))
                     ->sortable(),
                 Tables\Columns\ToggleColumn::make('recurring')
                     ->toggleable()
-                    ->tooltip('Run again on EPG sync')
+                    ->tooltip((fn(EpgMap $record) => $record->playlist_id !== null ? 'Run again on EPG sync' : 'Not available for custom channel mappings'))
                     ->disabled((fn(EpgMap $record) => $record->playlist_id === null))
                     ->sortable(),
                 Tables\Columns\TextColumn::make('sync_time')
@@ -87,8 +87,10 @@ class EpgMapResource extends Resource
                 //
             ])
             ->actions([
-                Tables\Actions\DeleteAction::make(),
-            ])
+                Tables\Actions\DeleteAction::make()
+                    ->button()
+                    ->hiddenLabel(),
+            ], position: Tables\Enums\ActionsPosition::BeforeCells)
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
                     Tables\Actions\DeleteBulkAction::make(),

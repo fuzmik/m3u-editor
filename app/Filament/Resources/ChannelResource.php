@@ -53,7 +53,7 @@ class ChannelResource extends Resource
 
     public static function setupTable(Table $table, $relationId = null): Table
     {
-        // $livewire = $table->getLivewire();
+//        $livewire = $table->getLivewire();
         return $table->persistFiltersInSession()
             ->filtersTriggerAction(function ($action) {
                 return $action->button()->label('Filters');
@@ -61,22 +61,26 @@ class ChannelResource extends Resource
             ->modifyQueryUsing(function (Builder $query) {
                 $query->with('epgChannel');
             })
-            // ->contentGrid(fn() => $livewire->isListLayout()
-            //     ? null
-            //     : [
-            //         'md' => 2,
-            //         'lg' => 3,
-            //         'xl' => 4,
-            //         '2xl' => 5,
-            //     ])
-            ->paginated([10, 25, 50, 100, 250])
+            ->deferLoading()
+//            ->contentGrid(fn() => $livewire->isListLayout()
+//                ? null
+//                : [
+//                    'md' => 2,
+//                    'lg' => 3,
+//                    'xl' => 4,
+//                    '2xl' => 5,
+//                ])
+//            ->reorderable('sort', $relationId !== null)
+//            ->reorderRecordsTriggerAction(
+//                fn(Tables\Actions\Action $action, bool $isReordering) => $action
+//                    ->button()
+//                    ->tooltip('')
+//                    ->label($isReordering ? 'Disable reordering' : 'Enable reordering'),
+//            )
+            ->paginated([10, 25, 50, 100])
+            ->paginatedWhileReordering()
             ->defaultPaginationPageOption(25)
             ->columns([
-                Tables\Columns\TextColumn::make('stream_id')
-                    ->label('ID')
-                    ->searchable()
-                    ->toggleable()
-                    ->sortable(),
                 Tables\Columns\ImageColumn::make('logo')
                     ->label('Icon')
                     ->checkFileExistence(false)
@@ -89,27 +93,32 @@ class ChannelResource extends Resource
                         return $record->epgChannel?->icon ?? $record->logo;
                     })
                     ->toggleable(),
+                Tables\Columns\TextInputColumn::make('sort')
+                    ->label('Sort Order')
+                    ->rules(['min:0'])
+                    ->type('number')
+                    ->placeholder('Sort Order')
+                    ->sortable()
+                    ->tooltip('Channel sort order')
+                    ->toggleable(),
+                Tables\Columns\TextInputColumn::make('stream_id_custom')
+                    ->label('ID')
+                    ->rules(['min:0', 'max:255'])
+                    ->tooltip('Channel/stream ID')
+                    ->placeholder(fn($record) => $record->stream_id)
+                    ->toggleable(),
                 Tables\Columns\TextInputColumn::make('title_custom')
                     ->label('Title')
                     ->rules(['min:0', 'max:255'])
+                    ->tooltip('Channel title')
                     ->placeholder(fn($record) => $record->title)
                     ->toggleable(),
-                    // ->sortable(),
-                // Tables\Columns\TextColumn::make('title')
-                //     ->searchable()
-                //     ->wrap()
-                //     ->sortable(),
                 Tables\Columns\TextInputColumn::make('name_custom')
                     ->label('Name')
                     ->rules(['min:0', 'max:255'])
+                    ->tooltip('Channel name')
                     ->placeholder(fn($record) => $record->name)
-                    ->toggleable(isToggledHiddenByDefault: false),
-                    // ->sortable(),
-                // Tables\Columns\TextColumn::make('name')
-                //     ->searchable()
-                //     ->wrap()
-                //     ->toggleable()
-                //     ->sortable(),
+                    ->toggleable(),
                 Tables\Columns\ToggleColumn::make('enabled')
                     ->toggleable()
                     ->tooltip('Toggle channel status')
@@ -121,6 +130,13 @@ class ChannelResource extends Resource
                     ->tooltip('Channel number')
                     ->toggleable()
                     ->sortable(),
+                Tables\Columns\TextInputColumn::make('url_custom')
+                    ->label('URL')
+                    ->rules(['url'])
+                    ->type('url')
+                    ->tooltip('Channel url')
+                    ->placeholder(fn($record) => $record->url)
+                    ->toggleable(),
                 Tables\Columns\TextInputColumn::make('shift')
                     ->rules(['numeric', 'min:0'])
                     ->type('number')
@@ -139,17 +155,15 @@ class ChannelResource extends Resource
                     ->searchable()
                     ->limit(40)
                     ->sortable(),
-                Tables\Columns\TextColumn::make('logo_type')
+                Tables\Columns\SelectColumn::make('logo_type')
                     ->label('Preferred Icon')
+                    ->options([
+                        'channel' => 'Channel',
+                        'epg' => 'EPG',
+                    ])
                     ->sortable()
-                    ->badge()
-                    ->toggleable()
-                    ->color(fn(ChannelLogoType $state) => $state->getColor()),
-                Tables\Columns\TextColumn::make('url')
-                    ->url(fn($record): string => $record->url)
-                    ->searchable()
-                    ->toggleable(isToggledHiddenByDefault: true)
-                    ->sortable(),
+                    ->tooltip('Preferred icon source')
+                    ->toggleable(),
                 Tables\Columns\TextColumn::make('lang')
                     ->searchable()
                     ->toggleable(isToggledHiddenByDefault: true)
@@ -193,8 +207,10 @@ class ChannelResource extends Resource
                     }),
             ])
             ->actions([
-                Tables\Actions\EditAction::make(),
-            ])
+                Tables\Actions\EditAction::make()
+                    ->button()
+                    ->hiddenLabel(),
+            ], position: Tables\Enums\ActionsPosition::BeforeCells)
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
                     Tables\Actions\BulkAction::make('add')
@@ -221,7 +237,7 @@ class ChannelResource extends Resource
                         ->requiresConfirmation()
                         ->icon('heroicon-o-play')
                         ->modalIcon('heroicon-o-play')
-                        ->modalDescription('Add the selected channels(s) to the chosen custom playlist.')
+                        ->modalDescription('Add the selected channel(s) to the chosen custom playlist.')
                         ->modalSubmitActionLabel('Add now'),
                     Tables\Actions\BulkAction::make('move')
                         ->label('Move to group')
@@ -265,7 +281,7 @@ class ChannelResource extends Resource
                         ->requiresConfirmation()
                         ->icon('heroicon-o-arrows-right-left')
                         ->modalIcon('heroicon-o-arrows-right-left')
-                        ->modalDescription('Move the selected channels(s) to the chosen group.')
+                        ->modalDescription('Move the selected channel(s) to the chosen group.')
                         ->modalSubmitActionLabel('Move now'),
                     Tables\Actions\BulkAction::make('map')
                         ->label('Map EPG to selected')
@@ -299,7 +315,7 @@ class ChannelResource extends Resource
                         ->requiresConfirmation()
                         ->icon('heroicon-o-link')
                         ->modalIcon('heroicon-o-link')
-                        ->modalDescription('Map the selected EPG to the selected channels(s).')
+                        ->modalDescription('Map the selected EPG to the selected channel(s).')
                         ->modalSubmitActionLabel('Map now'),
                     Tables\Actions\BulkAction::make('preferred_logo')
                         ->label('Update preferred icon')
@@ -330,7 +346,7 @@ class ChannelResource extends Resource
                         ->requiresConfirmation()
                         ->icon('heroicon-o-photo')
                         ->modalIcon('heroicon-o-photo')
-                        ->modalDescription('Update the preferred icon for the selected channels(s).')
+                        ->modalDescription('Update the preferred icon for the selected channel(s).')
                         ->modalSubmitActionLabel('Update now'),
                     Tables\Actions\BulkAction::make('enable')
                         ->label('Enable selected')
@@ -352,7 +368,7 @@ class ChannelResource extends Resource
                         ->requiresConfirmation()
                         ->icon('heroicon-o-check-circle')
                         ->modalIcon('heroicon-o-check-circle')
-                        ->modalDescription('Enable the selected channels(s) now?')
+                        ->modalDescription('Enable the selected channel(s) now?')
                         ->modalSubmitActionLabel('Yes, enable now'),
                     Tables\Actions\BulkAction::make('disable')
                         ->label('Disable selected')
@@ -374,7 +390,7 @@ class ChannelResource extends Resource
                         ->requiresConfirmation()
                         ->icon('heroicon-o-x-circle')
                         ->modalIcon('heroicon-o-x-circle')
-                        ->modalDescription('Disable the selected channels(s) now?')
+                        ->modalDescription('Disable the selected channel(s) now?')
                         ->modalSubmitActionLabel('Yes, disable now')
                 ]),
             ]);
@@ -402,35 +418,62 @@ class ChannelResource extends Resource
             // Customizable channel fields
             Forms\Components\Toggle::make('enabled')
                 ->columnSpan('full')
+                ->helperText('Toggle channel status')
+                ->inline(false)
                 ->required(),
             Forms\Components\TextInput::make('logo')
                 ->label('Icon')
-                ->columnSpan('full')
+                ->columnSpan(1)
                 ->prefixIcon('heroicon-m-globe-alt')
                 ->url(),
-
+            Forms\Components\TextInput::make('stream_id_custom')
+                ->label('ID')
+                ->columnSpan(1)
+                ->placeholder(fn(Get $get) => $get('stream_id'))
+                ->helperText("Leave empty to use playlist default value.")
+                ->rules(['min:1', 'max:255']),
             Forms\Components\TextInput::make('title_custom')
                 ->label('Title')
-                ->helperText(fn(Get $get) => "Default value: \"{$get('title')}\". Leave empty to use playlist default value.")
+                ->placeholder(fn(Get $get) => $get('title'))
+                ->helperText("Leave empty to use playlist default value.")
                 ->columnSpan(1)
                 ->rules(['min:1', 'max:255']),
             Forms\Components\TextInput::make('name_custom')
                 ->label('Name')
-                ->helperText(fn(Get $get) => "Default value: \"{$get('name')}\". Leave empty to use playlist default value.")
+                ->placeholder(fn(Get $get) => $get('name'))
+                ->helperText("Leave empty to use playlist default value.")
                 ->columnSpan(1)
                 ->rules(['min:1', 'max:255']),
-
             Forms\Components\TextInput::make('channel')
                 ->columnSpan(1)
                 ->rules(['numeric', 'min:0']),
             Forms\Components\TextInput::make('shift')
                 ->columnSpan(1)
                 ->rules(['numeric', 'min:0']),
-
+            Forms\Components\TextInput::make('url_custom')
+                ->label('URL')
+                ->columnSpan('full')
+                ->prefixIcon('heroicon-m-globe-alt')
+                ->placeholder(fn(Get $get) => $get('url'))
+                ->helperText("Leave empty to use playlist default value.")
+                ->rules(['min:1', 'max:255'])
+                ->suffixAction(
+                    Forms\Components\Actions\Action::make('copy')
+                        ->icon('heroicon-s-clipboard-document-check')
+                        ->action(function (Get $get, $livewire, $state) {
+                            $url = $state ?? $get('url');
+                            $livewire->js(
+                                'window.navigator.clipboard.writeText("' . $url . '");
+                                $tooltip("' . __('Copied to clipboard') . '", { timeout: 1500 });'
+                            );
+                        })
+                )
+                ->type('url'),
             Forms\Components\Select::make('epg_channel_id')
                 ->label('EPG Channel')
                 ->helperText('Select an associated EPG channel for this channel.')
                 ->relationship('epgChannel', 'name')
+                ->getOptionLabelFromRecordUsing(fn($record) => "$record->name [{$record->epg->name}]")
                 ->searchable()
                 ->columnSpan(1),
             Forms\Components\Select::make('logo_type')
@@ -442,29 +485,6 @@ class ChannelResource extends Resource
                 ])
                 ->searchable()
                 ->columnSpan(1),
-
-            /*
-             * Below fields are automatically populated/updated on Playlist sync.
-             */
-
-            // Forms\Components\TextInput::make('name')
-            //     ->required()
-            //     ->maxLength(255),
-            // Forms\Components\TextInput::make('url')
-            //     ->maxLength(255),
-            // Forms\Components\TextInput::make('group')
-            //     ->maxLength(255),
-            // Forms\Components\TextInput::make('stream_id')
-            //     ->maxLength(255),
-            // Forms\Components\TextInput::make('lang')
-            //     ->maxLength(255),
-            // Forms\Components\TextInput::make('country')
-            //     ->maxLength(255),
-            // Forms\Components\Select::make('playlist_id')
-            //     ->relationship('playlist', 'name')
-            //     ->required(),
-            // Forms\Components\Select::make('group_id')
-            //     ->relationship('group', 'name'),
         ];
     }
 }

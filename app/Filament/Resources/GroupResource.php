@@ -11,10 +11,12 @@ use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Infolists;
 use Filament\Infolists\Infolist;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 
 class GroupResource extends Resource
@@ -42,14 +44,16 @@ class GroupResource extends Resource
             ->filtersTriggerAction(function ($action) {
                 return $action->button()->label('Filters');
             })
-            ->paginated([10, 25, 50, 100, 250])
+            ->paginated([10, 25, 50, 100])
             ->defaultPaginationPageOption(25)
             ->columns([
-                Tables\Columns\TextColumn::make('name')
-                    ->searchable()
-                    ->sortable(),
+                Tables\Columns\TextInputColumn::make('name')
+                    ->label('Name')
+                    ->rules(['min:0', 'max:255'])
+                    ->placeholder(fn($record) => $record->name_internal)
+                    ->toggleable(),
                 Tables\Columns\TextColumn::make('name_internal')
-                    ->label('Playlist group name')
+                    ->label('Default name')
                     ->searchable()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('channels_count')
@@ -97,12 +101,56 @@ class GroupResource extends Resource
                     Tables\Actions\ViewAction::make(),
                     Tables\Actions\DeleteAction::make()
                         ->disabled(fn($record) => !$record->custom),
-                ]),
-            ])
+                ])->button()->hiddenLabel(),
+            ], position: Tables\Enums\ActionsPosition::BeforeCells)
             ->bulkActions([
-                // Tables\Actions\BulkActionGroup::make([
-                //     Tables\Actions\DeleteBulkAction::make(),
-                // ]),
+                Tables\Actions\BulkActionGroup::make([
+//                     Tables\Actions\DeleteBulkAction::make(),
+                    Tables\Actions\BulkAction::make('enable')
+                        ->label('Enable group channels')
+                        ->action(function (Collection $records): void {
+                            foreach ($records as $record) {
+                                $record->channels()->update([
+                                    'enabled' => true,
+                                ]);
+                            }
+                        })->after(function () {
+                            Notification::make()
+                                ->success()
+                                ->title('Selected group channels enabled')
+                                ->body('The selected group channels have been enabled.')
+                                ->send();
+                        })
+                        ->color('success')
+                        ->deselectRecordsAfterCompletion()
+                        ->requiresConfirmation()
+                        ->icon('heroicon-o-check-circle')
+                        ->modalIcon('heroicon-o-check-circle')
+                        ->modalDescription('Enable the selected group(s) channels now?')
+                        ->modalSubmitActionLabel('Yes, enable now'),
+                    Tables\Actions\BulkAction::make('disable')
+                        ->label('Disable group channels')
+                        ->action(function (Collection $records): void {
+                            foreach ($records as $record) {
+                                $record->channels()->update([
+                                    'enabled' => false,
+                                ]);
+                            }
+                        })->after(function () {
+                            Notification::make()
+                                ->success()
+                                ->title('Selected group channels disabled')
+                                ->body('The selected groups channels have been disabled.')
+                                ->send();
+                        })
+                        ->color('danger')
+                        ->deselectRecordsAfterCompletion()
+                        ->requiresConfirmation()
+                        ->icon('heroicon-o-x-circle')
+                        ->modalIcon('heroicon-o-x-circle')
+                        ->modalDescription('Disable the selected group(s) channels now?')
+                        ->modalSubmitActionLabel('Yes, disable now')
+                ]),
             ]);
     }
 

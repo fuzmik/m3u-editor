@@ -32,28 +32,37 @@ class PlaylistGenerateController extends Controller
                 $channels = $playlist->channels()
                     ->where('enabled', true)
                     ->with('epgChannel')
+                    ->orderBy('sort')
                     ->orderBy('channel')
+                    ->orderBy('title')
                     ->get();
 
                 // Output the enabled channels
                 echo "#EXTM3U\n";
+                $channelNumber = $playlist->auto_channel_increment ? $playlist->channel_start - 1 : 0;
                 foreach ($channels as $channel) {
                     // Get the title and name
                     $title = $channel->title_custom ?? $channel->title;
                     $name = $channel->name_custom ?? $channel->name;
+                    $tvgId = $channel->stream_id_custom ?? $channel->stream_id;
+                    $url = $channel->url_custom ?? $channel->url;
                     $epgData = $channel->epgChannel ?? null;
+                    $channelNo = $channel->channel;
+                    if (!$channelNo && $playlist->auto_channel_increment) {
+                        $channelNo = ++$channelNumber;
+                    }
 
                     // Get the icon
                     $icon = '';
-                    if ($channel->logo_type === ChannelLogoType::Epg && $epgData && $epgData->icon) {
+                    if ($channel->logo_type === ChannelLogoType::Epg && $epgData) {
                         $icon = $epgData->icon ?? '';
-                    } elseif ($channel->logo_type === ChannelLogoType::Channel && $channel->logo) {
+                    } elseif ($channel->logo_type === ChannelLogoType::Channel) {
                         $icon = $channel->logo ?? '';
                     }
 
                     // Output the channel
-                    echo "#EXTINF:-1 tvg-chno=\"$channel->channel\" tvg-id=\"$channel->stream_id\" tvg-name=\"$name\" tvg-logo=\"$icon\" group-title=\"$channel->group\"," . $title . "\n";
-                    echo $channel->url . "\n";
+                    echo "#EXTINF:-1 tvg-chno=\"$channelNo\" tvg-id=\"$tvgId\" tvg-name=\"$name\" tvg-logo=\"$icon\" group-title=\"$channel->group\"," . $title . "\n";
+                    echo $url . "\n";
                 }
             },
             200,
