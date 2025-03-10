@@ -9,6 +9,7 @@ use App\Forms\Components\PlaylistEpgUrl;
 use App\Forms\Components\PlaylistM3uUrl;
 use App\Models\Playlist;
 use App\Rules\CheckIfUrlOrLocalPath;
+use Carbon\Carbon;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Forms\Get;
@@ -109,6 +110,19 @@ class PlaylistResource extends Resource
                     ->formatStateUsing(fn(string $state): string => gmdate('H:i:s', (int)$state))
                     ->toggleable()
                     ->sortable(),
+                Tables\Columns\TextColumn::make('exp_date')
+                    ->label('Expiry Date')
+                    ->getStateUsing(function ($record) {
+                        if ($record->xtream_status) {
+                            try {
+                                $expires = Carbon::createFromTimestamp($record->xtream_status['user_info']['exp_date']);
+                                return $expires->toDayDateTimeString();
+                            } catch (\Exception $e) {
+                            }
+                        }
+                        return 'N/A';
+                    })
+                    ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('created_at')
                     ->dateTime()
                     ->sortable()
@@ -190,7 +204,6 @@ class PlaylistResource extends Resource
             ], position: Tables\Enums\ActionsPosition::BeforeCells)
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
                     Tables\Actions\BulkAction::make('process')
                         ->label('Process selected')
                         ->action(function (Collection $records): void {
@@ -215,7 +228,9 @@ class PlaylistResource extends Resource
                         ->icon('heroicon-o-arrow-path')
                         ->modalIcon('heroicon-o-arrow-path')
                         ->modalDescription('Process the selected playlist(s) now?')
-                        ->modalSubmitActionLabel('Yes, process now')
+                        ->modalSubmitActionLabel('Yes, process now'),
+
+                    Tables\Actions\DeleteBulkAction::make(),
                 ]),
             ])->checkIfRecordIsSelectableUsing(
                 fn($record): bool => $record->status !== PlaylistStatus::Processing,
@@ -295,7 +310,7 @@ class PlaylistResource extends Resource
                                 ->hidden(fn(Get $get): bool => !$get('xtream')),
 
                             Forms\Components\Grid::make()
-                                ->columns(2)
+                                ->columns(3)
                                 ->columnSpanFull()
                                 ->schema([
                                     Forms\Components\TextInput::make('xtream_config.username')
@@ -309,6 +324,15 @@ class PlaylistResource extends Resource
                                         ->columnSpan(1)
                                         ->password()
                                         ->revealable()
+                                        ->hidden(fn(Get $get): bool => !$get('xtream')),
+                                    Forms\Components\Select::make('xtream_config.output')
+                                        ->label('Output')
+                                        ->required()
+                                        ->columnSpan(1)
+                                        ->options([
+                                            'ts' => 'MPEG-TS (.ts)',
+                                            'm3u8' => 'HLS (.m3u8)',
+                                        ])->default('ts')
                                         ->hidden(fn(Get $get): bool => !$get('xtream')),
                                 ]),
 

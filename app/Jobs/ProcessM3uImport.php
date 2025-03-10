@@ -56,13 +56,14 @@ class ProcessM3uImport implements ShouldQueue
 
     /**
      * Create a new job instance.
-     * 
+     *
      * @param Playlist $playlist
      */
     public function __construct(
         public Playlist $playlist,
-        public ?bool $force = false,
-    ) {
+        public ?bool    $force = false,
+    )
+    {
         $this->preprocess = $playlist->import_prefs['preprocess'] ?? false;
         $this->useRegex = $playlist->import_prefs['use_regex'] ?? false;
         $this->selectedGroups = $playlist->import_prefs['selected_groups'] ?? [];
@@ -124,15 +125,27 @@ class ProcessM3uImport implements ShouldQueue
             $baseUrl = str($playlist->xtream_config['url'])->replace(' ', '%20')->toString();
             $user = urlencode($playlist->xtream_config['username']);
             $password = $playlist->xtream_config['password'];
+            $output = $playlist->xtream_config['output'] ?? 'ts';
 
             // Setup the category and stream URLs
-            // $userInfo = "$baseUrl/player_api.php?username=$user&password=$password";
+            $userInfo = "$baseUrl/player_api.php?username=$user&password=$password";
             $liveCategories = "$baseUrl/player_api.php?username=$user&password=$password&action=get_live_categories&type=m3u_plus";
             $liveStreams = "$baseUrl/player_api.php?username=$user&password=$password&action=get_live_streams&type=m3u_plus";
 
             // Setup the user agent and SSL verification
             $verify = !$playlist->disable_ssl_verification;
             $userAgent = empty($playlist->user_agent) ? $this->userAgent : $playlist->user_agent;
+
+            // Get the user info
+            $userInfoResponse = Http::withUserAgent($userAgent)
+                ->withOptions(['verify' => $verify])
+                ->timeout(30)
+                ->throw()->get($userInfo);
+            if ($userInfoResponse->ok()) {
+                $playlist->update([
+                    'xtream_status' => $userInfoResponse->json(),
+                ]);
+            }
 
             // Get the categories
             $categoriesResponse = Http::withUserAgent($userAgent)
@@ -144,15 +157,9 @@ class ProcessM3uImport implements ShouldQueue
                 // Update progress
                 $playlist->update(['progress' => 5]); // set to 5% to start
 
-                // Get the user info
-                // $userInfoResponse = Http::withUserAgent($userAgent)
-                //     ->withOptions(['verify' => $verify])
-                //     ->timeout(30)
-                //     ->throw()->get($userInfo);
-
                 // Update progress
                 $connectionSuccess = true;
-                $categories = collect(json_decode($categoriesResponse->body(), true));
+                $categories = collect($categoriesResponse->json());
                 $liveStreamsResponse = Http::withUserAgent($userAgent)
                     ->withOptions(['verify' => $verify])
                     ->timeout(60 * 10) // set timeout to ten minute
@@ -189,7 +196,7 @@ class ProcessM3uImport implements ShouldQueue
 
                     // Process the live streams
                     $streamBaseUrl = "$baseUrl/live/$user/$password";
-                    $collection = LazyCollection::make(function () use ($liveStreams, $streamBaseUrl, $categories, $channelFields) {
+                    $collection = LazyCollection::make(function () use ($liveStreams, $streamBaseUrl, $categories, $channelFields, $output) {
                         foreach ($liveStreams as $item) {
                             // Get the category
                             $category = $categories->firstWhere('category_id', $item['category_id']);
@@ -202,7 +209,7 @@ class ProcessM3uImport implements ShouldQueue
                                 ...$channelFields,
                                 'title' => $item['name'],
                                 'name' => $item['name'],
-                                'url' => "$streamBaseUrl/{$item['stream_id']}.ts",
+                                'url' => "$streamBaseUrl/{$item['stream_id']}.$output",
                                 'logo' => $item['stream_icon'],
                                 'group' => $category['category_name'] ?? '',
                                 'group_internal' => $category['category_name'] ?? '',
@@ -511,11 +518,12 @@ class ProcessM3uImport implements ShouldQueue
      */
     private function processChannelCollection(
         LazyCollection $collection,
-        Playlist $playlist,
-        string $batchNo,
-        int $userId,
-        Carbon $start
-    ) {
+        Playlist       $playlist,
+        string         $batchNo,
+        int            $userId,
+        Carbon         $start
+    )
+    {
         // Get the playlist ID
         $playlistId = $playlist->id;
 
@@ -633,7 +641,7 @@ class ProcessM3uImport implements ShouldQueue
 
     /**
      * Determine if the channel should be included
-     * 
+     *
      * @param string $groupName
      */
     private function shouldIncludeChannel($groupName): bool
