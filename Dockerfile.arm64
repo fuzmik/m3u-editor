@@ -146,6 +146,6 @@ RUN addgroup $WWWGROUP \
 RUN chown -R sail:$WWWGROUP /var/www/html
 
 # Expose app port
-EXPOSE $APP_PORT $REVERB_PORT
+EXPOSE $APP_PORT 
 
 ENTRYPOINT ["start-container"]
