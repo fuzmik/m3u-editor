@@ -166,7 +166,7 @@ return [
     |
     */
 
-    'memory_limit' => 64,
+    'memory_limit' => 8192,
 
     /*
     |--------------------------------------------------------------------------
@@ -188,7 +188,7 @@ return [
             'maxProcesses' => 10,
             'maxTime' => 0,
             'maxJobs' => 0,
-            'memory' => 128,
+            'memory' => 4092,
             'tries' => 3,
             'timeout' => 60,
             'nice' => 0,
