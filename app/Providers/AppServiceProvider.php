@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use Exception;
 use App\Events\EpgCreated;
 use App\Events\PlaylistCreated;
 use App\Jobs\ReloadApp;
@@ -10,15 +11,26 @@ use App\Models\MergedPlaylist;
 use App\Models\Epg;
 use App\Models\Group;
 use App\Models\Playlist;
+use App\Models\User;
 use App\Settings\GeneralSettings;
-use Exception;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Routing\Route;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Opcodes\LogViewer\Facades\LogViewer;
 use Spatie\LaravelSettings\Events\SettingsSaved;
+use Filament\Support\Facades\FilamentView;
+use Filament\View\PanelsRenderHook;
+use Illuminate\Support\HtmlString;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
+use Dedoc\Scramble\Scramble;
+use Dedoc\Scramble\Support\Generator\OpenApi;
+use Dedoc\Scramble\Support\Generator\SecurityScheme;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -38,6 +50,45 @@ class AppServiceProvider extends ServiceProvider
         // Disable mass assignment protection (security handled by Filament)
         Model::unguard();
 
+        // Setup the middleware
+        $this->setupMiddleware();
+
+        // Setup the gates
+        $this->setupGates();
+
+        // Register the model event listeners
+        $this->registerModelEventListeners();
+
+        // Register the Filament hooks
+        $this->registerFilamentHooks();
+
+        // Setup the API
+        $this->setupApi();
+    }
+
+    /**
+     * Setup the middleware.
+     */
+    private function setupMiddleware(): void
+    {
+        RateLimiter::for('api', function (Request $request) {
+            return Limit::perMinute(60)->by(optional($request->user())->id ?: $request->ip());
+        });
+    }
+
+    /**
+     * Setup the gates.
+     */
+    private function setupGates(): void
+    {
+        // Allow only the admin to download and delete backups
+        Gate::define('download-backup', function (User $user) {
+            return in_array($user->email, config('dev.admin_emails'), true);
+        });
+        Gate::define('delete-backup', function (User $user) {
+            return in_array($user->email, config('dev.admin_emails'), true);
+        });
+
         // Add log viewer auth
         $userPreferences = app(GeneralSettings::class);
         try {
@@ -49,7 +100,13 @@ class AppServiceProvider extends ServiceProvider
             Gate::define('viewLogViewer', fn() => false);
         }
         LogViewer::auth(fn($request) => $showLogs);
+    }
 
+    /**
+     * Register the model event listeners.
+     */
+    private function registerModelEventListeners(): void
+    {
         // Listen for settings update
         Event::listen(SettingsSaved::class, function ($event) {
             if ($event->settings::class === GeneralSettings::class) {
@@ -138,5 +195,56 @@ class AppServiceProvider extends ServiceProvider
             // Log the error
             report($e);
         }
+    }
+
+    /**
+     * Register the Filament hooks.
+     */
+    private function registerFilamentHooks(): void
+    {
+        // Add scroll to top event listener
+        FilamentView::registerRenderHook(
+            PanelsRenderHook::SCRIPTS_AFTER,
+            fn(): string => new HtmlString('<script>document.addEventListener("scroll-to-top", () => window.scrollTo({top: 0, left: 0, behavior: "smooth"}))</script>'),
+        );
+
+        // Add footer view
+        FilamentView::registerRenderHook(
+            PanelsRenderHook::FOOTER,
+            fn() => view('footer')
+        );
+    }
+
+    /**
+     * Setup the API.
+     */
+    private function setupApi(): void
+    {
+        // Add log viewer auth
+        $userPreferences = app(GeneralSettings::class);
+        try {
+            $showApiDocs = $userPreferences->show_api_docs;
+        } catch (Exception $e) {
+            $showApiDocs = false;
+        }
+
+        // Allow access to api docs
+        Gate::define('viewApiDocs', function (User $user) use ($showApiDocs) {
+            return $showApiDocs && in_array($user->email, config('dev.admin_emails'), true);
+        });
+
+        // Configure the API
+        Scramble::configure()
+            ->routes(function (Route $route) {
+                return Str::startsWith($route->uri, 'api/');
+            });
+
+        // Setup auth
+        Scramble::configure()
+            ->withDocumentTransformers(function (OpenApi $openApi) {
+                $openApi->secure(
+                    SecurityScheme::http('bearer')
+                );
+            });
     }
 }

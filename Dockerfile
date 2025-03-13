@@ -71,7 +71,7 @@ RUN apk --no-cache add \
 # COPY --from=node /usr/local/lib /usr/local/lib
 # COPY --from=node /usr/local/include /usr/local/include
 # COPY --from=node /usr/local/bin /usr/local/bin
-        
+
 # https://wiki.alpinelinux.org/wiki/Setting_the_timezone
 RUN apk --no-cache add tzdata \
     && cp /usr/share/zoneinfo/$TZ /etc/localtime \
@@ -97,12 +97,14 @@ RUN apk --no-cache add \
         php84-sqlite3 php84-gd php84-curl \
         php84-intl php84-imap php84-mbstring \
         php84-xml php84-zip php84-bcmath php84-soap \
-        php84-xmlreader \
+        php84-xmlreader php84-xmlwriter \
+        php84-iconv \
         php84-ldap \
         php84-tokenizer \
         php84-msgpack \
         php84-opcache \
         php84-pdo_mysql \
+        php84-pdo_sqlite \
         php84-phar \
         php84-fileinfo \
         php84-pecl-igbinary \

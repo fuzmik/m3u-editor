@@ -2,14 +2,16 @@
 
 namespace App\Providers\Filament;
 
-use App\Filament\Widgets\UpdateNoticeWidget;
 use Exception;
+use App\Filament\Pages\Backups;
+use App\Filament\Widgets\UpdateNoticeWidget;
 use App\Filament\Auth\Login;
 use App\Filament\Auth\EditProfile;
 use App\Filament\Pages\CustomDashboard;
 use App\Filament\Widgets\DiscordWidget;
 use App\Filament\Widgets\KoFiWidget;
-use App\Filament\Widgets\PayPalDonateWidget;
+
+//use App\Filament\Widgets\PayPalDonateWidget;
 use App\Filament\Widgets\StatsOverview;
 use App\Settings\GeneralSettings;
 use Filament\Http\Middleware\Authenticate;
@@ -26,15 +28,19 @@ use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\Blade;
+use Illuminate\Validation\Rules\Password;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
 use Filament\Support\Enums\MaxWidth;
 use Hydrat\TableLayoutToggle\TableLayoutTogglePlugin;
-use Filament\View\PanelsRenderHook;
 use Filament\Widgets\AccountWidget;
+use ShuvroRoy\FilamentSpatieLaravelBackup\FilamentSpatieLaravelBackupPlugin;
+use Jeffgreco13\FilamentBreezy\BreezyCore;
+use App\Livewire\ProfileComponent;
 
 class AdminPanelProvider extends PanelProvider
 {
     protected static ?string $navigationIcon = 'heroicon-o-tachometer';
+
     public static function getNavigationIcon(): ?string
     {
         return 'heroicon-o-tachometer';
@@ -46,14 +52,12 @@ class AdminPanelProvider extends PanelProvider
         $settings = [
             'navigation_position' => 'left',
             'show_breadcrumbs' => true,
-            'show_jobs_navigation' => false,
             'content_width' => MaxWidth::ScreenLarge,
         ];
         try {
             $settings = [
                 'navigation_position' => $userPreferences->navigation_position ?? $settings['navigation_position'],
                 'show_breadcrumbs' => $userPreferences->show_breadcrumbs ?? $settings['show_breadcrumbs'],
-                'show_jobs_navigation' => $userPreferences->show_jobs_navigation ?? $settings['show_jobs_navigation'],
                 'content_width' => $userPreferences->content_width ?? $settings['content_width'],
             ];
         } catch (Exception $e) {
@@ -64,7 +68,7 @@ class AdminPanelProvider extends PanelProvider
             ->id('admin')
             ->path('')
             ->login(Login::class)
-            ->profile(EditProfile::class, isSimple: false)
+            // ->profile(EditProfile::class, isSimple: false)
             ->brandName('m3u editor')
             ->brandLogo(fn() => view('filament.admin.logo'))
             ->favicon('/favicon.png')
@@ -89,11 +93,31 @@ class AdminPanelProvider extends PanelProvider
                 // PayPalDonateWidget::class,
                 KoFiWidget::class,
                 DiscordWidget::class,
-
                 StatsOverview::class,
             ])
             ->plugins([
+                FilamentSpatieLaravelBackupPlugin::make()
+                    ->authorize(fn(): bool => in_array(auth()->user()->email, config('dev.admin_emails'), true))
+                    ->usingPage(Backups::class),
                 TableLayoutTogglePlugin::make(),
+                BreezyCore::make()
+                    ->myProfile(
+                        slug: 'profile',
+                        userMenuLabel: 'Profile',
+                    )
+                    ->enableTwoFactorAuthentication()
+                    ->enableSanctumTokens(
+                        // permissions: ['my','custom','permissions'] // optional, customize the permissions (default = ["create", "view", "update", "delete"])
+                    )
+                    ->myProfileComponents([
+                        'personal_info' => ProfileComponent::class
+                    ])
+//                    ->passwordUpdateRules(
+//                        rules: [
+//                            'min:4'
+//                        ],
+//                        requiresCurrentPassword: false
+//                    ),
             ])
             ->maxContentWidth($settings['content_width'])
             ->middleware([
@@ -114,14 +138,8 @@ class AdminPanelProvider extends PanelProvider
             ->spaUrlExceptions(fn(): array => [
                 '*/playlist.m3u',
                 '*/epg.xml',
-                'epgs/*/epg.xml'
-            ])
-            ->renderHook(
-                // PanelsRenderHook::BODY_END,
-                PanelsRenderHook::FOOTER,
-                fn() => view('footer')
-            );
-
+                'epgs/*/epg.xml',
+            ]);
         if ($settings['navigation_position'] === 'top') {
             $adminPanel->topNavigation();
         } else {
