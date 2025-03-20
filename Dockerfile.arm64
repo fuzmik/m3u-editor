@@ -10,7 +10,7 @@ ENV TZ=America/Los_Angeles
 ENV SUPERVISOR_PHP_USER="root"
 ENV OCTANE_HTTPS=true
 ENV APP_URL="https://m3u-editor.ovcn.ddnsfree.com"
-ENV APP_TIMEZONE=America/Los_Angeles
+ENV APP_TIMEZONE=Etc/UTC
 ENV CACHE_STORE=database
 ENV HOSTNAME=m3u-editor
 #
