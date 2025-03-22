@@ -488,7 +488,7 @@ class ChannelResource extends Resource
                 ->prefixIcon('heroicon-m-globe-alt')
                 ->placeholder(fn(Get $get) => $get('url'))
                 ->helperText("Leave empty to use playlist default value.")
-                ->rules(['min:1', 'max:255'])
+                ->rules(['min:1'])
                 ->suffixAction(
                     Forms\Components\Actions\Action::make('copy')
                         ->icon('heroicon-s-clipboard-document-check')
@@ -535,7 +535,6 @@ class ChannelResource extends Resource
                     'channel' => 'Channel',
                     'epg' => 'EPG',
                 ])
-                ->searchable()
                 ->columnSpan(1),
         ];
     }

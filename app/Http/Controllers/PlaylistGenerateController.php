@@ -48,7 +48,6 @@ class PlaylistGenerateController extends Controller
                     // Get the title and name
                     $title = $channel->title_custom ?? $channel->title;
                     $name = $channel->name_custom ?? $channel->name;
-                    $tvgId = $channel->stream_id_custom ?? $channel->stream_id;
                     $url = $channel->url_custom ?? $channel->url;
                     $epgData = $channel->epgChannel ?? null;
                     $channelNo = $channel->channel;
@@ -58,6 +57,7 @@ class PlaylistGenerateController extends Controller
                     if ($proxyEnabled) {
                         $url = route('stream', base64_encode((string)$channel->id));
                     }
+                    $tvgId = $channel->stream_id_custom ?? $channel->stream_id;
 
                     // Get the icon
                     $icon = '';
@@ -72,6 +72,11 @@ class PlaylistGenerateController extends Controller
                     if ($channel->extvlcopt) {
                         foreach ($channel->extvlcopt as $extvlcopt) {
                             echo "#EXTVLCOPT:{$extvlcopt['key']}={$extvlcopt['value']}\n";
+                        }
+                    }
+                    if ($channel->kodidrop) {
+                        foreach ($channel->kodidrop as $kodidrop) {
+                            echo "#KODIPROP:{$kodidrop['key']}={$kodidrop['value']}\n";
                         }
                     }
                     echo $url . "\n";
@@ -182,6 +187,19 @@ class PlaylistGenerateController extends Controller
                 'GuideName' => $channel->title_custom ?? $channel->title,
                 'URL' => $url,
             ];
+
+            // Example of more detailed response
+//            return [
+//                'GuideNumber' => $channel->channel_number ?? $streamId, // Channel number (e.g., "100")
+//                'GuideName'   => $channel->title_custom ?? $channel->title, // Channel name
+//                'URL'         => $url, // Stream URL
+//                'HD'          => $is_hd ? 1 : 0, // HD flag
+//                'VideoCodec'  => 'H264', // Set based on your stream format
+//                'AudioCodec'  => 'AAC', // Set based on your stream format
+//                'Favorite'    => $favorite ? 1 : 0, // Favorite flag
+//                'DRM'         => 0, // Assuming no DRM
+//                'Streaming'   => 'direct', // Direct stream or transcoding
+//            ];
         }));
     }
 

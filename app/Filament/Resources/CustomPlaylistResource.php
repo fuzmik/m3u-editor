@@ -163,6 +163,14 @@ class CustomPlaylistResource extends Resource
                         ->columnSpanFull()
                         ->columns(2)
                         ->schema([
+                            Forms\Components\Select::make('id_channel_by')
+                                ->label('Preferred TVG ID output')
+                                ->helperText('How you would like to ID your channels in the EPG.')
+                                ->options([
+                                    'stream_id' => 'TVG ID/Stream ID (default)',
+                                    'channel_id' => 'Channel Number',
+                                ])
+                                ->columnSpan(1),
                             Forms\Components\Toggle::make('auto_channel_increment')
                                 ->label('Auto channel number increment')
                                 ->columnSpan(1)
@@ -170,12 +178,6 @@ class CustomPlaylistResource extends Resource
                                 ->live()
                                 ->default(false)
                                 ->helperText('If no channel number is set, output an automatically incrementing number.'),
-                            Forms\Components\Toggle::make('auto_sort')
-                                ->label('Automatically assign sort number based on playlist order')
-                                ->columnSpan(1)
-                                ->inline(false)
-                                ->default(true)
-                                ->helperText('NOTE: You will need to re-sync your playlist, or wait for the next scheduled sync, if changing this. This will overwrite any existing channel sort order customization for this playlist.'),
                             Forms\Components\TextInput::make('channel_start')
                                 ->helperText('The starting channel number.')
                                 ->columnSpan(1)
