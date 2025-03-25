@@ -5,12 +5,11 @@ FROM arm64v8/alpine:edge
 ENV WWWGROUP="sail"
 ENV APP_PORT=36400
 ENV REVERB_PORT=36800
-ENV TZ=America/Los_Angeles
+ENV TZ=UTC
 # ENV NODE_VERSION=22.12.0
 ENV SUPERVISOR_PHP_USER="root"
 ENV OCTANE_HTTPS=true
 ENV APP_URL="https://m3u-editor.ovcn.ddnsfree.com"
-ENV APP_TIMEZONE=Etc/UTC
 ENV CACHE_STORE=database
 ENV HOSTNAME=m3u-editor
 #
@@ -39,7 +38,7 @@ WORKDIR /var/www/html
 # Install basic packages
 RUN apk update \
     && apk --no-cache add  \
-        py3-setuptools \
+        coreutils \
         supervisor \
         nano \
         wget \
@@ -138,7 +137,7 @@ COPY --from=arm64v8/composer:2 /usr/bin/composer /usr/bin/composer
 COPY start-container /usr/local/bin/start-container
 RUN chmod +x /usr/local/bin/start-container
 
-RUN git clone --branch=local https://github.com/fuzmik/m3u-editor.git /tmp/m3u-editor \
+RUN git clone https://github.com/sparkinson/m3u-editor.git /tmp/m3u-editor \
     && mv /tmp/m3u-editor/* /var/www/html \
     && mv /tmp/m3u-editor/.git /var/www/html/.git \
     && mv /tmp/m3u-editor/.env.example /var/www/html/.env.example \
@@ -154,6 +153,6 @@ RUN addgroup $WWWGROUP \
 RUN chown -R sail:$WWWGROUP /var/www/html
 
 # Expose app port $APP_PORT or $REVERB_PORT
-EXPOSE $APP_PORT $REVERB_PORT
+EXPOSE $APP_PORT
 
 ENTRYPOINT ["start-container"]
