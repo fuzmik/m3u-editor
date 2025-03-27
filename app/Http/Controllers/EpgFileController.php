@@ -13,7 +13,15 @@ class EpgFileController extends Controller
     public function __invoke(string $uuid)
     {
         $epg = Epg::where('uuid', $uuid)->firstOrFail();
-        if (!Storage::exists($epg->file_path)) {
+        $filePath = null;
+        if ($epg->url && str_starts_with($epg->url, 'http')) {
+            $filePath = Storage::disk('local')->path($epg->file_path);
+        } else if ($epg->uploads && Storage::disk('local')->exists($epg->uploads)) {
+            $filePath = Storage::disk('local')->path($epg->uploads);
+        } else if ($epg->url) {
+            $filePath = $epg->url;
+        }
+        if (!($filePath && file_exists($filePath))) {
             abort(404);
         }
 
@@ -21,8 +29,7 @@ class EpgFileController extends Controller
         $filename = Str::slug($epg->name) . '.xml';
 
         // Setup the file stream
-        $fs = Storage::getDriver();
-        $stream = $fs->readStream($epg->file_path);
+        $stream = fopen($filePath, 'r');
 
         // Return the original file
         return response()->stream(
