@@ -7,7 +7,7 @@ return [
      * Your API path. By default, all routes starting with this path will be added to the docs.
      * If you need to change this behavior, you can add your custom routes resolver using `Scramble::routes()`.
      */
-    'api_path' => 'api',
+    'api_path' => '',
 
     /*
      * Your API domain. By default, app domain is used. This is also a part of the default API routes
@@ -30,8 +30,7 @@ return [
          * Description rendered on the home page of the API documentation (`/docs/api`).
          */
         'description' =>
-            '<h2>Welcome to the m3u editor API!</h2> You will need to use an API token to access the app endpoints.<br/>You can get your token by logging in to the app and visiting your <strong>Profile</strong> page.
-        ',
+        '<h2>Welcome to the m3u editor API!</h2> You will need to use an API token to access the app endpoints.<br/>You can get your token by logging in to the app and visiting your <strong>Profile</strong> page.<br/><br/>Scroll to the bottom and Create an API token under the <strong>API Tokens</strong> section of your profile page.<br/>Make sure to copy and securely store this token for accessing authenticated routes of the API, it will only be shown once.',
     ],
 
     /*

@@ -11,26 +11,26 @@ class EpgController extends Controller
     /**
      * Sync the selected EPG.
      *
-     * Use the `epg` parameter to select the EPG to refresh.
-     * You can find the EPG ID by looking at the ID column when viewing the EPG table.
+     * Use the `uuid` parameter to select the EPG to refresh.
+     * You can find the EPG UUID by using the `User > Get your EPGs` endpoint.
      *
      * @param \Illuminate\Http\Request $request
-     * @param \App\Models\Playlist $epg
+     * @param string $uuid
      *
      * @return \Illuminate\Http\JsonResponse
-     * @response array{message: "Response"}
+     * 
+     * @unauthenticated
+     * @response array{message: "EPG is currently being synced..."}
      */
-    public function refreshEpg(Request $request, Epg $epg)
+    public function refreshEpg(Request $request, string $uuid)
     {
         $request->validate([
             // If true, will force a refresh of the EPG, ignoring any scheduling. Default is true.
             'force' => 'boolean',
         ]);
-        if ($request->user()->id !== $epg->user_id) {
-            return response()->json([
-                'message' => 'Unauthorized',
-            ])->setStatusCode(403);
-        }
+
+        // Fetch the EPG
+        $epg = Epg::where('uuid', $uuid)->firstOrFail();
 
         // Refresh the EPG
         // Refresh the playlist
