@@ -62,10 +62,10 @@ services:
       - M3U_PROXY_TOKEN=${M3U_PROXY_TOKEN:-changeme}
     volumes:
       # Persistent configuration data
-      - ./data:/var/www/config
+      - m3u-data:/var/www/config
       
       # PostgreSQL data persistence
-      - pgdata:/var/lib/postgresql/data
+      - m3u-pgdata:/var/lib/postgresql/data
     restart: unless-stopped
     ports:
       - "${APP_PORT:-36400}:${APP_PORT:-36400}"  # Main application port
@@ -75,7 +75,7 @@ services:
     depends_on:
       m3u-proxy:
         condition: service_healthy
-      redis:
+      m3u-redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:${APP_PORT:-36400}/up"]
@@ -86,6 +86,13 @@ services:
 
   m3u-proxy:
     image: sparkison/m3u-proxy:${IMAGE_TAG:-latest}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     container_name: m3u-proxy
     environment:
       # API Authentication Token (must match M3U_PROXY_TOKEN above)
@@ -95,7 +102,7 @@ services:
       # Redis Configuration (for stream pooling)
       - REDIS_ENABLED=true
       - REDIS_PORT=${REDIS_PORT:-6379}
-      - REDIS_HOST=${REDIS_HOST:-redis}
+      - REDIS_HOST=${REDIS_HOST:-m3u-redis}
       - REDIS_PASSWORD=${REDIS_PASSWORD:-changeme}
       - REDIS_DB=6 # 1-5 used by m3u-editor, so use 6 for m3u-proxy
       - ENABLE_REDIS_POOLING=true
@@ -107,9 +114,9 @@ services:
       # Only set ROOT_PATH= (empty) if you need to use the root path instead
       
       # Optional: Additional configuration
-      # - REDIS_POOL_MAX_CONNECTIONS=50
-      # - STREAM_TIMEOUT=300
-      # - CLEANUP_INTERVAL=60
+      - REDIS_POOL_MAX_CONNECTIONS=50
+      - STREAM_TIMEOUT=300
+      - CLEANUP_INTERVAL=60
     restart: unless-stopped
     # Don't expose port externally - only accessible via internal network
     # ports:
@@ -117,7 +124,7 @@ services:
     networks:
       - m3u-network
     depends_on:
-      redis:
+      m3u-redis:
         condition: service_healthy
     #devices:
     #  - /dev/dri:/dev/dri
@@ -138,11 +145,11 @@ services:
     #       cpus: '0.5'
     #       memory: 512M
 
-  redis:
+  m3u-redis:
     image: redis:alpine3.22
     container_name: m3u-redis
     volumes:
-      - redis-data:/data
+      - m3u-redis-data:/data
     restart: unless-stopped
     command: redis-server --port ${REDIS_PORT:-6379} --requirepass ${REDIS_PASSWORD:-changeme} --appendonly no --save "" --maxmemory 256mb --maxmemory-policy allkeys-lru
     networks:
@@ -168,7 +175,7 @@ networks:
     driver: bridge
 
 volumes:
-  pgdata:
+  m3u-pgdata:
     driver: local
-  redis-data:
+  mu3-redis-data:
     driver: local
